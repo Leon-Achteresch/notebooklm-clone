@@ -28,7 +28,21 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  await supabase.auth.getClaims()
+  const { data } = await supabase.auth.getClaims()
+  const user = data?.claims
+  const onLogin = request.nextUrl.pathname.startsWith("/login")
+
+  if (!user && !onLogin) return redirectTo(request, "/login", response)
+  if (user && onLogin) return redirectTo(request, "/", response)
 
   return response
+}
+
+function redirectTo(request: NextRequest, pathname: string, from: NextResponse) {
+  const url = request.nextUrl.clone()
+  url.pathname = pathname
+  url.search = ""
+  const redirect = NextResponse.redirect(url)
+  from.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
+  return redirect
 }
