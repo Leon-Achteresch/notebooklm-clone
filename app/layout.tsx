@@ -1,29 +1,34 @@
-import { Geist, Geist_Mono, Inter } from "next/font/google"
+import { Geist_Mono, Inter, Instrument_Serif } from "next/font/google"
+import type { Metadata } from "next"
 
 import "./globals.css"
+import { MotionProvider } from "@/components/motion-provider"
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/toast"
+import { cn } from "@/lib/utils"
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'})
+export const metadata: Metadata = {
+  title: { default: "Folio", template: "%s · Folio" },
+  description: "Lade deine Quellen hoch und sprich mit ihnen. Jede Antwort belegt.",
+}
 
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-})
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
+const serif = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["normal", "italic"], variable: "--font-serif" })
+const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
-      lang="en"
+      lang="de"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
+      className={cn("font-sans antialiased", inter.variable, serif.variable, mono.variable)}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <MotionProvider>
+            <Toaster>{children}</Toaster>
+          </MotionProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
