@@ -1,21 +1,165 @@
-import { logout } from "@/app/login/actions"
-import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { ArrowUpRightIcon, PlusIcon } from "lucide-react"
+import { createNotebook } from "@/app/notebook/actions"
+import { Magnetic } from "@/components/motion/magnetic"
+import { Cover, Wordmark } from "@/components/notebook/brand"
+import {
+  Lift,
+  Stagger,
+  StaggerItem,
+  WordReveal,
+} from "@/components/notebook/reveal"
+import { UserMenu } from "@/components/notebook/user-menu"
 import { createClient } from "@/lib/supabase/server"
+
+type Row = {
+  id: string
+  title: string
+  owner_id: string
+  created_at: string
+  sources: { count: number }[]
+}
+
+function greeting() {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      hour: "numeric",
+      hourCycle: "h23",
+      timeZone: "Europe/Berlin",
+    }).format(new Date())
+  )
+  if (hour < 5) return "Gute Nacht"
+  if (hour < 11) return "Guten Morgen"
+  if (hour < 18) return "Guten Tag"
+  return "Guten Abend"
+}
 
 export default async function Page() {
   const supabase = await createClient()
-  const { data: profile } = await supabase.from("users").select("email").single()
+  const [{ data: claims }, { data }] = await Promise.all([
+    supabase.auth.getClaims(),
+    supabase
+      .from("notebooks")
+      .select("id, title, owner_id, created_at, sources(count)")
+      .order("created_at", { ascending: false }),
+  ])
+  const notebooks = (data ?? []) as Row[]
+  const userId = claims?.claims.sub
+  const email = String(claims?.claims.email ?? "")
+  const name = email.split("@")[0].split(/[._+-]/)[0]
+  const mine = notebooks.filter((n) => n.owner_id === userId)
+  const shared = notebooks.filter((n) => n.owner_id !== userId)
+  const sourceCount = mine.reduce(
+    (sum, n) => sum + (n.sources[0]?.count ?? 0),
+    0
+  )
 
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <p>Angemeldet als {profile?.email}</p>
-        <form>
-          <Button formAction={logout} variant="outline">
-            Abmelden
-          </Button>
-        </form>
-      </div>
+    <div className="min-h-svh">
+      <header className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-10">
+        <Wordmark />
+        <UserMenu email={email} />
+      </header>
+
+      <main className="mx-auto max-w-7xl px-6 pb-32 lg:px-10">
+        <section className="pt-16 pb-14 lg:pt-24 lg:pb-20">
+          <p className="label rise">
+            {mine.length} {mine.length === 1 ? "Notebook" : "Notebooks"} ·{" "}
+            {sourceCount} {sourceCount === 1 ? "Quelle" : "Quellen"}
+          </p>
+          <h1 className="mt-5 font-serif text-[clamp(3rem,7vw,6.5rem)] leading-[0.92] tracking-[-0.02em]">
+            <WordReveal
+              text={`${greeting()}${name ? `, ${name[0].toUpperCase()}${name.slice(1)}` : ""}.`}
+            />
+            <br />
+            <WordReveal
+              text="Was willst du verstehen?"
+              delay={0.25}
+              className="text-muted-foreground italic"
+            />
+          </h1>
+        </section>
+
+        <Stagger
+          delay={0.35}
+          className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4"
+        >
+          <StaggerItem>
+            <form action={createNotebook}>
+              <button
+                type="submit"
+                className="group flex w-full items-center gap-4 rounded-2xl border border-dashed border-foreground/20 p-5 text-left transition-colors outline-none hover:border-foreground/50 hover:bg-card focus-visible:ring-3 focus-visible:ring-ring/50 sm:aspect-[4/3] sm:flex-col sm:items-start sm:justify-between sm:gap-0"
+              >
+                <Magnetic strength={0.3}>
+                  <span className="flex size-10 items-center justify-center rounded-full bg-foreground text-background transition-transform duration-300 group-hover:rotate-90">
+                    <PlusIcon className="size-5" />
+                  </span>
+                </Magnetic>
+                <span>
+                  <span className="block font-serif text-2xl">
+                    Neues Notebook
+                  </span>
+                  <span className="mt-1 block text-sm text-muted-foreground">
+                    PDFs, Links und Notizen an einem Ort
+                  </span>
+                </span>
+              </button>
+            </form>
+          </StaggerItem>
+          {mine.map((n) => (
+            <StaggerItem key={n.id}>
+              <NotebookCard notebook={n} />
+            </StaggerItem>
+          ))}
+        </Stagger>
+
+        {shared.length > 0 && (
+          <section className="mt-24">
+            <h2 className="label mb-6">Mit dir geteilt</h2>
+            <Stagger className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+              {shared.map((n) => (
+                <StaggerItem key={n.id}>
+                  <NotebookCard notebook={n} />
+                </StaggerItem>
+              ))}
+            </Stagger>
+          </section>
+        )}
+      </main>
     </div>
+  )
+}
+
+function NotebookCard({ notebook }: { notebook: Row }) {
+  const count = notebook.sources[0]?.count ?? 0
+  const date = new Date(notebook.created_at).toLocaleDateString("de-DE", {
+    day: "numeric",
+    month: "short",
+  })
+  return (
+    <Link
+      href={`/notebook/${notebook.id}`}
+      className="group block rounded-2xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <Lift>
+        <Cover
+          seed={notebook.id}
+          className="relative aspect-[4/3] rounded-2xl ring-1 ring-foreground/5"
+        >
+          <span className="absolute top-4 right-4 flex size-8 items-center justify-center rounded-full bg-white/70 text-neutral-900 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+            <ArrowUpRightIcon className="size-4" />
+          </span>
+          <span className="absolute bottom-3 left-5 font-serif text-7xl text-white/90 italic">
+            {notebook.title.trim()[0]?.toUpperCase()}
+          </span>
+        </Cover>
+      </Lift>
+      <h3 className="mt-4 line-clamp-2 font-serif text-2xl leading-tight">
+        {notebook.title}
+      </h3>
+      <p className="label mt-1.5">
+        {count} {count === 1 ? "Quelle" : "Quellen"} · {date}
+      </p>
+    </Link>
   )
 }
