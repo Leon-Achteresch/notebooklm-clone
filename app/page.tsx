@@ -17,6 +17,7 @@ type Row = {
   title: string
   owner_id: string
   created_at: string
+  featured: boolean
   sources: { count: number }[]
 }
 
@@ -36,19 +37,39 @@ function greeting() {
 
 export default async function Page() {
   const supabase = await createClient()
-  const [{ data: claims }, { data }] = await Promise.all([
+  const [{ data: claims }, { data }, { data: memberships }] = await Promise.all([
     supabase.auth.getClaims(),
     supabase
       .from("notebooks")
-      .select("id, title, owner_id, created_at, sources(count)")
+      .select("id, title, owner_id, created_at, featured, sources(count)")
       .order("created_at", { ascending: false }),
+    supabase.from("notebook_members").select("notebook_id, user_id"),
   ])
   const notebooks = (data ?? []) as Row[]
   const userId = claims?.claims.sub
+  const isGuest = claims?.claims.is_anonymous === true
   const email = String(claims?.claims.email ?? "")
   const name = email.split("@")[0].split(/[._+-]/)[0]
+  const member = new Set(
+    (memberships ?? []).filter((m) => m.user_id === userId).map((m) => m.notebook_id)
+  )
   const mine = notebooks.filter((n) => n.owner_id === userId)
-  const shared = notebooks.filter((n) => n.owner_id !== userId)
+  const featured = notebooks.filter((n) => n.featured && n.owner_id !== userId)
+  const shared = notebooks.filter(
+    (n) => n.owner_id !== userId && member.has(n.id)
+  )
+  const discover = featured.length > 0 && (
+    <section className={mine.length ? "mt-24" : "mb-24"}>
+      <h2 className="label mb-6">Entdecken</h2>
+      <Stagger className="grid gap-6 lg:grid-cols-2">
+        {featured.map((n) => (
+          <StaggerItem key={n.id}>
+            <FeaturedCard notebook={n} />
+          </StaggerItem>
+        ))}
+      </Stagger>
+    </section>
+  )
   const sourceCount = mine.reduce(
     (sum, n) => sum + (n.sources[0]?.count ?? 0),
     0
@@ -58,7 +79,7 @@ export default async function Page() {
     <div className="min-h-svh">
       <header className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-10">
         <Wordmark />
-        <UserMenu email={email} />
+        <UserMenu email={isGuest ? "Gast" : email} />
       </header>
 
       <main className="mx-auto max-w-7xl px-6 pb-32 lg:px-10">
@@ -80,6 +101,11 @@ export default async function Page() {
           </h1>
         </section>
 
+        {!mine.length && discover}
+
+        {!mine.length && featured.length > 0 && (
+          <h2 className="label mb-6">Deine Notebooks</h2>
+        )}
         <Stagger
           delay={0.35}
           className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4"
@@ -113,6 +139,8 @@ export default async function Page() {
           ))}
         </Stagger>
 
+        {mine.length > 0 && discover}
+
         {shared.length > 0 && (
           <section className="mt-24">
             <h2 className="label mb-6">Mit dir geteilt</h2>
@@ -127,6 +155,42 @@ export default async function Page() {
         )}
       </main>
     </div>
+  )
+}
+
+function FeaturedCard({ notebook }: { notebook: Row }) {
+  const count = notebook.sources[0]?.count ?? 0
+  return (
+    <Link
+      href={`/notebook/${notebook.id}`}
+      className="group block rounded-3xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <Lift>
+        <Cover
+          seed={notebook.id}
+          className="relative flex aspect-[16/9] flex-col justify-between rounded-3xl p-7 text-neutral-900 ring-1 ring-foreground/5 sm:aspect-[2/1]"
+        >
+          <span className="flex items-center justify-between">
+            <span className="rounded-full bg-white/70 px-3 py-1 font-mono text-[10.5px] tracking-widest uppercase backdrop-blur">
+              Beispiel-Notebook
+            </span>
+            <span className="flex size-9 items-center justify-center rounded-full bg-neutral-900 text-white transition-transform duration-300 group-hover:scale-110">
+              <ArrowUpRightIcon className="size-4" />
+            </span>
+          </span>
+          <span>
+            <span className="block font-serif text-5xl leading-none sm:text-6xl">
+              {notebook.title}
+            </span>
+            <span className="mt-3 block max-w-md text-[15px] text-neutral-900/70">
+              {count} {count === 1 ? "Quelle" : "Quellen"} · Podcast, Mindmap,
+              Präsentation, Quiz und mehr sind schon erstellt. Stell Fragen
+              oder mach dir eine eigene Kopie.
+            </span>
+          </span>
+        </Cover>
+      </Lift>
+    </Link>
   )
 }
 

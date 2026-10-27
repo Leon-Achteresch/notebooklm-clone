@@ -1,7 +1,21 @@
 "use server"
 
+import type { AuthError } from "@supabase/supabase-js"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+
+const MESSAGES: Record<string, string> = {
+  invalid_credentials: "E-Mail oder Passwort ist falsch.",
+  user_already_exists: "Für diese E-Mail gibt es schon ein Konto. Melde dich einfach an.",
+  email_exists: "Für diese E-Mail gibt es schon ein Konto. Melde dich einfach an.",
+  weak_password: "Das Passwort ist zu schwach. Nimm mindestens sechs Zeichen.",
+  over_request_rate_limit: "Zu viele Versuche. Bitte warte kurz.",
+  anonymous_provider_disabled: "Der Gastzugang ist gerade deaktiviert.",
+}
+
+function fail(error: AuthError): never {
+  redirect(`/login?error=${encodeURIComponent(MESSAGES[error.code ?? ""] ?? error.message)}`)
+}
 
 function credentials(formData: FormData) {
   return {
@@ -13,18 +27,23 @@ function credentials(formData: FormData) {
 export async function login(formData: FormData) {
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword(credentials(formData))
-  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`)
+  if (error) fail(error)
   redirect("/")
 }
 
 export async function signup(formData: FormData) {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.signUp(credentials(formData))
-  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`)
+  if (error) fail(error)
   if (!data.session)
-    redirect(
-      `/login?error=${encodeURIComponent("Konto existiert bereits oder E-Mail-Bestätigung ist noch aktiv.")}`
-    )
+    redirect(`/login?error=${encodeURIComponent("Bestätige deine E-Mail-Adresse über den Link in deinem Postfach und melde dich dann an.")}`)
+  redirect("/")
+}
+
+export async function guest() {
+  const supabase = await createClient()
+  const { error } = await supabase.auth.signInAnonymously()
+  if (error) fail(error)
   redirect("/")
 }
 

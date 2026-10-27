@@ -1,4 +1,5 @@
-import { login, signup } from "@/app/login/actions"
+import { ArrowRightIcon, SparklesIcon } from "lucide-react"
+import { guest, login, signup } from "@/app/login/actions"
 import { Cover, Wordmark } from "@/components/notebook/brand"
 import { LoginShowcase } from "@/components/notebook/login-showcase"
 import { WordReveal } from "@/components/notebook/reveal"
@@ -60,6 +61,26 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
                 </Button>
               </div>
             </FieldGroup>
+          </form>
+          <div className="my-8 flex items-center gap-3 font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+            <span className="h-px flex-1 bg-border" />
+            oder
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <form action={guest}>
+            <button
+              type="submit"
+              className="group flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-colors outline-none hover:border-foreground/30 hover:bg-card focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-signal text-signal-foreground">
+                <SparklesIcon className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">Ohne Konto ausprobieren</span>
+                <span className="block text-sm text-muted-foreground">Mit Beispiel-Notebook, Podcast und Mindmap</span>
+              </span>
+              <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
           </form>
         </div>
       </main>
