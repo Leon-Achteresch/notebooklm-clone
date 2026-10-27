@@ -110,5 +110,12 @@ begin
   delete from public.users where id = other;
   assert (select sum(credits) from public.tts_usage) >= 3000, 'deleting a user keeps the audio ledger';
 
+  perform set_config('request.jwt.claims', '', true);
+  begin
+    update public.notebooks set featured = true where id = nb;
+    assert false, 'featured notebooks must be public';
+  exception when check_violation then null;
+  end;
+
   raise exception 'ALL_OK';
 end $$;
