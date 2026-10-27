@@ -14,11 +14,17 @@ import {
   PanelRightOpenIcon,
   PlayIcon,
   PlusIcon,
+  PresentationIcon,
   RotateCwIcon,
+  Table2Icon,
 } from "lucide-react"
 import { deleteNote, generate, noteToSource, retryNote, saveNote } from "@/app/notebook/actions"
 import { Cover } from "@/components/notebook/brand"
-import { AudioView, FlashcardsView, MindMapView, QuizView, ReportView } from "@/components/notebook/studio-viewers"
+import { AudioPlayer } from "@/components/notebook/audio-player"
+import { MindMapCanvas } from "@/components/notebook/mindmap-canvas"
+import { SlidesView } from "@/components/notebook/slides-view"
+import { AudioView, FlashcardsView, QuizView, ReportView } from "@/components/notebook/studio-viewers"
+import { TableView } from "@/components/notebook/table-view"
 import { useRun } from "@/components/notebook/use-run"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -26,6 +32,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
+import { audioTrackSchema } from "@/lib/audio"
 import { SPRING_LAYOUT, SPRING_PRESS } from "@/lib/ease"
 import {
   AUDIO_FORMATS,
@@ -48,7 +55,7 @@ export const KINDS: Record<NoteKind, { label: string; hint: string; icon: typeof
   },
   report: {
     label: KIND_LABELS.report,
-    hint: "Briefing, FAQ, Zeitleiste …",
+    hint: "Briefing, FAQ & mehr",
     icon: FileTextIcon,
     tint: "bg-[oklch(0.94_0.03_250)] text-[oklch(0.5_0.13_255)] dark:bg-[oklch(0.3_0.05_255)] dark:text-[oklch(0.8_0.09_250)]",
   },
@@ -60,7 +67,7 @@ export const KINDS: Record<NoteKind, { label: string; hint: string; icon: typeof
   },
   flashcards: {
     label: KIND_LABELS.flashcards,
-    hint: "Begriffe und Fakten lernen",
+    hint: "Begriffe lernen",
     icon: LayersIcon,
     tint: "bg-[oklch(0.94_0.04_155)] text-[oklch(0.48_0.11_160)] dark:bg-[oklch(0.3_0.05_160)] dark:text-[oklch(0.8_0.09_155)]",
   },
@@ -69,6 +76,18 @@ export const KINDS: Record<NoteKind, { label: string; hint: string; icon: typeof
     hint: "Wissen testen",
     icon: ListChecksIcon,
     tint: "bg-[oklch(0.94_0.04_10)] text-[oklch(0.53_0.17_15)] dark:bg-[oklch(0.3_0.06_15)] dark:text-[oklch(0.8_0.1_15)]",
+  },
+  slides: {
+    label: KIND_LABELS.slides,
+    hint: "Folien mit Notizen",
+    icon: PresentationIcon,
+    tint: "bg-[oklch(0.94_0.05_75)] text-[oklch(0.52_0.12_65)] dark:bg-[oklch(0.32_0.06_70)] dark:text-[oklch(0.84_0.1_80)]",
+  },
+  table: {
+    label: KIND_LABELS.table,
+    hint: "Fakten vergleichen",
+    icon: Table2Icon,
+    tint: "bg-[oklch(0.94_0.03_200)] text-[oklch(0.5_0.09_210)] dark:bg-[oklch(0.3_0.04_210)] dark:text-[oklch(0.82_0.07_200)]",
   },
   note: {
     label: KIND_LABELS.note,
@@ -113,6 +132,8 @@ function Elapsed({ since }: { since: string }) {
 
 const press = { whileHover: { y: -2 }, whileTap: { scale: 0.97 }, transition: SPRING_PRESS }
 
+const WIDE = new Set<NoteKind>(["mindmap", "slides", "table"])
+
 export function StudioPanel({
   notebookId,
   notes,
@@ -120,6 +141,7 @@ export function StudioPanel({
   hasSources,
   collapsed,
   onToggle,
+  onAsk,
 }: {
   notebookId: string
   notes: Note[]
@@ -127,8 +149,11 @@ export function StudioPanel({
   hasSources: boolean
   collapsed: boolean
   onToggle: () => void
+  onAsk: (question: string) => void
 }) {
   const [language, setLanguage] = useState<Language>("Deutsch")
+  const [focus, setFocus] = useState("")
+  const [menu, setMenu] = useState<"audio" | "report" | null>(null)
   const [openId, setOpenId] = useState<string | "new" | null>(null)
   const [awaiting, setAwaiting] = useState<string | null>(null)
   const [pending, run] = useRun()
@@ -141,15 +166,23 @@ export function StudioPanel({
     if (finished.status === "ready") setOpenId(finished.id)
   }
 
-  const start = (req: StudioRequest) =>
+  const menuProps = (kind: "audio" | "report") => ({
+    open: menu === kind,
+    onOpenChange: (open: boolean) => setMenu(open ? kind : null),
+  })
+
+  const start = (req: StudioRequest) => {
+    setMenu(null)
     run(async () => {
       const result = await generate(notebookId, req)
       if (result.noteId) {
         setAwaiting(result.noteId)
+        setFocus("")
         toast.add({ title: "Wird im Hintergrund erstellt", description: "Du kannst weiterarbeiten oder die Seite verlassen.", type: "info" })
       }
       return result
     })
+  }
 
   if (collapsed)
     return (
@@ -157,7 +190,7 @@ export function StudioPanel({
         <Button variant="ghost" size="icon-sm" onClick={onToggle} aria-label="Studio ausklappen">
           <PanelRightOpenIcon />
         </Button>
-        {(["audio", "report", "mindmap", "flashcards", "quiz"] as const).map((kind, i) => (
+        {(["audio", "report", "mindmap", "slides", "flashcards", "quiz", "table"] as const).map((kind, i) => (
           <motion.button
             key={kind}
             onClick={onToggle}
@@ -174,20 +207,42 @@ export function StudioPanel({
       </div>
     )
 
-  const options = (kind: "audio" | "report") => (
-    <PopoverContent align="start" className="w-64 gap-0 p-1.5">
-      <p className="label px-2 pt-1.5 pb-2">{kind === "audio" ? "Format wählen" : "Berichtsart wählen"}</p>
-      {kind === "audio"
-        ? (Object.keys(AUDIO_FORMATS) as (keyof typeof AUDIO_FORMATS)[]).map((format) => (
-            <Option key={format} label={AUDIO_FORMATS[format].label} onPick={() => start({ kind, format, language })} />
-          ))
-        : (Object.keys(REPORTS) as (keyof typeof REPORTS)[]).map((type) => (
-            <Option key={type} label={REPORTS[type].label} onPick={() => start({ kind, type, language })} />
-          ))}
-    </PopoverContent>
-  )
+  const options = (kind: "audio" | "report") => {
+    const extra = { language, focus: focus.trim() || undefined }
+    return (
+      <PopoverContent align="start" className="w-72 gap-0 p-1.5">
+        <p className="label px-2 pt-1.5 pb-2">{kind === "audio" ? "Format wählen" : "Berichtsart wählen"}</p>
+        {kind === "audio"
+          ? (Object.keys(AUDIO_FORMATS) as (keyof typeof AUDIO_FORMATS)[]).map((format) => (
+              <Option
+                key={format}
+                label={AUDIO_FORMATS[format].label}
+                hint={AUDIO_FORMATS[format].hint}
+                onPick={() => start({ kind, format, ...extra })}
+              />
+            ))
+          : (Object.keys(REPORTS) as (keyof typeof REPORTS)[]).map((type) => (
+              <Option key={type} label={REPORTS[type].label} onPick={() => start({ kind, type, ...extra })} />
+            ))}
+        <div className="mt-1.5 border-t px-1 pt-2.5 pb-1">
+          <label htmlFor={`focus-${kind}`} className="label px-1">
+            Schwerpunkt <span className="normal-case tracking-normal">(optional)</span>
+          </label>
+          <Textarea
+            id={`focus-${kind}`}
+            value={focus}
+            onChange={(e) => setFocus(e.target.value)}
+            maxLength={500}
+            rows={2}
+            placeholder={kind === "audio" ? "z. B. Erklär es für Einsteiger" : "z. B. Nur Kapitel 2"}
+            className="mt-1.5 min-h-0 resize-none text-sm"
+          />
+        </div>
+      </PopoverContent>
+    )
+  }
 
-  const tile = (kind: "mindmap" | "flashcards" | "quiz" | "report", index: number) => {
+  const tile = (kind: "mindmap" | "flashcards" | "quiz" | "report" | "slides" | "table", index: number) => {
     const inner = (
       <>
         <KindIcon kind={kind} />
@@ -208,7 +263,7 @@ export function StudioPanel({
     }
     if (kind === "report")
       return (
-        <Popover>
+        <Popover {...menuProps("report")}>
           <PopoverTrigger disabled={disabled} render={<motion.button {...props} />}>
             {inner}
           </PopoverTrigger>
@@ -246,7 +301,7 @@ export function StudioPanel({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="flex flex-col gap-2 p-3">
-          <Popover>
+          <Popover {...menuProps("audio")}>
             <PopoverTrigger
               disabled={disabled}
               render={
@@ -274,8 +329,10 @@ export function StudioPanel({
           <div className="grid grid-cols-2 gap-2">
             {tile("report", 0)}
             {tile("mindmap", 1)}
-            {tile("flashcards", 2)}
-            {tile("quiz", 3)}
+            {tile("slides", 2)}
+            {tile("table", 3)}
+            {tile("flashcards", 4)}
+            {tile("quiz", 5)}
           </div>
           {!hasSources && canEdit && <p className="px-1 text-xs text-muted-foreground">Wähle zuerst Quellen aus, um Inhalte zu erstellen.</p>}
         </div>
@@ -319,22 +376,35 @@ export function StudioPanel({
         isNew={openId === "new"}
         canEdit={canEdit}
         onClose={() => setOpenId(null)}
+        onAsk={(question) => {
+          setOpenId(null)
+          onAsk(question)
+        }}
       />
     </>
   )
 }
 
-function Option({ label, onPick }: { label: string; onPick: () => void }) {
+function Option({ label, hint, onPick }: { label: string; hint?: string; onPick: () => void }) {
   return (
-    <button onClick={onPick} className="flex items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-muted">
-      {label}
-      <PlusIcon className="size-3.5 text-muted-foreground" />
+    <button onClick={onPick} className="flex items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-muted">
+      <span>
+        {label}
+        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+      </span>
+      <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" />
     </button>
   )
 }
 
+function stageLabel(note: Note) {
+  const stage = (note.data as { stage?: string } | null)?.stage
+  if (stage === "voices") return "Stimmen werden aufgenommen"
+  return note.kind === "audio" ? "Skript wird geschrieben" : "Wird erstellt"
+}
+
 function NoteRow({ note, canEdit, onOpen, onRetry }: { note: Note; canEdit: boolean; onOpen: () => void; onRetry: () => void }) {
-  const date = new Date(note.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "short" })
+  const date = new Date(note.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "short", timeZone: "Europe/Berlin" })
 
   if (note.status === "pending")
     return (
@@ -343,7 +413,7 @@ function NoteRow({ note, canEdit, onOpen, onRetry }: { note: Note; canEdit: bool
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm">{note.title}</span>
           <span className="shimmer-text block font-mono text-[11px]">
-            Wird erstellt · <Elapsed since={note.created_at} />
+            {stageLabel(note)} · <Elapsed since={note.created_at} />
           </span>
         </span>
       </div>
@@ -383,7 +453,7 @@ function NoteRow({ note, canEdit, onOpen, onRetry }: { note: Note; canEdit: bool
   )
 }
 
-function NoteBody({ note }: { note: Note }) {
+function NoteBody({ note, onAsk }: { note: Note; onAsk: (question: string) => void }) {
   const unreadable = <p className="text-sm text-muted-foreground">Dieser Inhalt hat ein unbekanntes Format.</p>
   switch (note.kind) {
     case "note":
@@ -400,12 +470,32 @@ function NoteBody({ note }: { note: Note }) {
     }
     case "mindmap": {
       const data = parseStudioData("mindmap", note.data)
-      return data ? <MindMapView data={data} /> : unreadable
+      return data ? <MindMapCanvas data={data} onAsk={onAsk} /> : unreadable
+    }
+    case "slides": {
+      const data = parseStudioData("slides", note.data)
+      return data ? <SlidesView data={data} /> : unreadable
+    }
+    case "table": {
+      const data = parseStudioData("table", note.data)
+      return data ? <TableView data={data} /> : unreadable
     }
     case "audio": {
       const data = parseStudioData("audio", note.data)
-      const language = (note.data as { language?: Language }).language
-      return data ? <AudioView data={data} language={language} /> : unreadable
+      if (!data) return unreadable
+      const extra = note.data as { language?: Language; audio?: unknown }
+      const track = audioTrackSchema.safeParse(extra.audio)
+      return track.success ? (
+        <AudioPlayer
+          notebookId={note.notebook_id}
+          noteId={note.id}
+          script={data}
+          track={track.data}
+          language={extra.language ?? "Deutsch"}
+        />
+      ) : (
+        <AudioView data={data} language={extra.language} />
+      )
     }
   }
 }
@@ -416,12 +506,14 @@ function NoteDialog({
   isNew,
   canEdit,
   onClose,
+  onAsk,
 }: {
   notebookId: string
   note: Note | null
   isNew: boolean
   canEdit: boolean
   onClose: () => void
+  onAsk: (question: string) => void
 }) {
   const [pending, run] = useRun()
   const editable = canEdit && (isNew || note?.kind === "note")
@@ -431,7 +523,12 @@ function NoteDialog({
 
   return (
     <Dialog open={isNew || !!note} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[min(88svh,56rem)] flex-col gap-0 p-0 sm:max-w-3xl">
+      <DialogContent
+        className={cn(
+          "flex flex-col gap-0 p-0",
+          WIDE.has(kind) ? "h-[94svh] sm:max-w-[min(94vw,84rem)]" : "h-[min(88svh,56rem)] sm:max-w-3xl"
+        )}
+      >
         <div className="flex items-start gap-3 border-b px-6 pt-6 pb-4">
           <KindIcon kind={kind} />
           <div className="min-w-0 flex-1 pr-8">
@@ -454,7 +551,7 @@ function NoteDialog({
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...SPRING_LAYOUT, delay: 0.08 }}
-          className="min-h-0 flex-1 overflow-y-auto px-6 py-6"
+          className={cn("min-h-0 flex-1", kind === "mindmap" ? "overflow-hidden" : "overflow-y-auto px-6 py-6")}
         >
           {editable ? (
             <Textarea
@@ -465,7 +562,7 @@ function NoteDialog({
               className="h-full min-h-64 resize-none border-0 p-0 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
           ) : (
-            note && <NoteBody note={note} />
+            note && <NoteBody note={note} onAsk={onAsk} />
           )}
         </motion.div>
         {canEdit && (

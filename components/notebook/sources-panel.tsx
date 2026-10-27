@@ -760,7 +760,7 @@ export function SourceViewer({
                 <SourceIcon source={source} />
                 <span className="label">
                   {KIND_LABEL[source.kind]} ·{" "}
-                  {new Date(source.created_at).toLocaleDateString("de-DE")}
+                  {new Date(source.created_at).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}
                 </span>
               </div>
               <SheetTitle className="mt-4 font-serif text-3xl leading-tight font-normal">

@@ -7,6 +7,7 @@ import { after } from "next/server"
 import { z } from "zod"
 import { action, must, UserError, userMessage } from "@/lib/server/action"
 import {
+  answerListener,
   chargeQuota,
   discoverSources,
   fetchUrl,
@@ -14,7 +15,18 @@ import {
   generateStudio,
   summarizeSource,
 } from "@/lib/server/ai"
-import { studioLabel, studioRequestSchema, type StudioRequest } from "@/lib/studio"
+import { audioTrackSchema, speakable, type AudioTrack } from "@/lib/audio"
+import { claimTts, PODCAST_MODEL, synthesize } from "@/lib/server/tts"
+import {
+  HOSTS,
+  LANGUAGES,
+  parseStudioData,
+  studioLabel,
+  studioRequestSchema,
+  type AudioScript,
+  type Language,
+  type StudioRequest,
+} from "@/lib/studio"
 import { createClient, type Db } from "@/lib/supabase/server"
 import type { Guide } from "@/lib/types"
 
@@ -51,6 +63,27 @@ async function uploadPdf(db: Db, notebookId: string, body: Blob | Buffer) {
   return path
 }
 
+async function settled<T>(tasks: Promise<T>[]) {
+  return (await Promise.allSettled(tasks)).map((r) => {
+    if (r.status === "rejected") throw r.reason
+    return r.value
+  })
+}
+
+async function purge(db: Db, notebookId: string) {
+  await Promise.all(
+    (["sources", "studio"] as const).map(async (bucket) => {
+      const listed = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
+      if (listed.error) throw listed.error
+      const names = listed.data.map((f) => `${notebookId}/${f.name}`)
+      if (!names.length) return
+      const { error } = await db.storage.from(bucket).remove(names)
+      if (error) throw error
+    })
+  )
+  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
+}
+
 export async function createNotebook() {
   const db = await createClient()
   const notebook = must(await db.from("notebooks").insert({}).select("id").single())
@@ -59,10 +92,64 @@ export async function createNotebook() {
 
 export const deleteNotebook = action([id], async (notebookId) => {
   const db = await createClient()
-  const { data: files } = await db.storage.from("sources").list(notebookId, { limit: 10000 })
-  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
-  if (files?.length) await db.storage.from("sources").remove(files.map((f) => `${notebookId}/${f.name}`))
+  if (must(await db.rpc("notebook_role", { nid: notebookId })) !== "owner") throw new UserError("Dafür fehlen dir die Rechte")
+  await purge(db, notebookId)
   revalidatePath("/")
+})
+
+export const duplicateNotebook = action([id], async (notebookId) => {
+  const db = await createClient()
+  const original = must(await db.from("notebooks").select("title, instructions, guide").eq("id", notebookId).single())
+  const [sourcesResult, notesResult] = await Promise.all([
+    db.from("sources").select("*").eq("notebook_id", notebookId).order("created_at"),
+    db.from("notes").select("*").eq("notebook_id", notebookId).eq("status", "ready").order("created_at"),
+  ])
+  const sources = must(sourcesResult)
+  const notes = must(notesResult)
+  const copy = must(
+    await db
+      .from("notebooks")
+      .insert({ title: `${original.title} (Kopie)`, instructions: original.instructions })
+      .select("id")
+      .single()
+  )
+  try {
+    const copyFile = async (bucket: "sources" | "studio", from: string, to: string) => {
+      const { error } = await db.storage.from(bucket).copy(from, to)
+      if (error) throw error
+      return to
+    }
+    const sourceRows = await settled(
+      sources.map(async (s) => ({
+        notebook_id: copy.id,
+        kind: s.kind,
+        title: s.title,
+        content: s.content,
+        url: s.url,
+        selected: s.selected,
+        summary: s.summary,
+        storage_path: s.storage_path && (await copyFile("sources", s.storage_path, `${copy.id}/${randomUUID()}.pdf`)),
+      }))
+    )
+    const noteRows = await settled(
+      notes.map(async (n) => {
+        const noteId = randomUUID()
+        const track = audioTrackSchema.safeParse((n.data as { audio?: unknown } | null)?.audio)
+        const data = track.success
+          ? { ...(n.data as object), audio: { ...track.data, path: await copyFile("studio", track.data.path, `${copy.id}/${noteId}.mp3`) } }
+          : n.data
+        return { id: noteId, notebook_id: copy.id, kind: n.kind, title: n.title, content: n.content, data, status: n.status, created_at: n.created_at }
+      })
+    )
+    if (sourceRows.length) must(await db.from("sources").insert(sourceRows))
+    if (noteRows.length) must(await db.from("notes").insert(noteRows))
+    if (original.guide) must(await db.from("notebooks").update({ guide: original.guide }).eq("id", copy.id))
+  } catch (e) {
+    await purge(db, copy.id).catch(() => {})
+    throw e
+  }
+  revalidatePath("/")
+  redirect(`/notebook/${copy.id}`)
 })
 
 export const updateNotebook = action(
@@ -178,22 +265,46 @@ export const saveNote = action(
 export const deleteNote = action([id, id], async (notebookId, noteId) => {
   const db = await editor(notebookId)
   must(await db.from("notes").delete().eq("id", noteId).eq("notebook_id", notebookId))
+  await db.storage.from("studio").remove([`${notebookId}/${noteId}.mp3`])
   refresh(notebookId)
 })
 
 export const noteToSource = action([id, id], async (notebookId, noteId) => {
   const db = await editor(notebookId)
   const note = must(await db.from("notes").select("title, content, data").eq("id", noteId).eq("notebook_id", notebookId).single())
-  const content = note.content || JSON.stringify(note.data, null, 2)
+  const script = parseStudioData("audio", note.data)
+  const content =
+    note.content ||
+    (script ? script.turns.map((t) => `${HOSTS[t.speaker]}: ${speakable(t.text)}`).join("\n\n") : JSON.stringify(note.data, null, 2))
   must(await db.from("sources").insert({ notebook_id: notebookId, kind: "text", title: note.title, content }))
   refresh(notebookId)
 })
+
+async function voiceover(db: Db, notebookId: string, noteId: string, script: AudioScript, language: Language) {
+  try {
+    if (!(await claimTts(db, notebookId, script.turns, PODCAST_MODEL))) return null
+    const { audio, duration, turns } = await synthesize(script.turns, language, PODCAST_MODEL)
+    const path = `${notebookId}/${noteId}.mp3`
+    await db.storage.from("studio").remove([path])
+    const { error } = await db.storage.from("studio").upload(path, audio, { contentType: "audio/mpeg" })
+    if (error) throw error
+    return { path, duration, model: PODCAST_MODEL, turns } satisfies AudioTrack
+  } catch (e) {
+    console.error(e)
+    return null
+  }
+}
 
 function runStudioJob(db: Db, notebookId: string, noteId: string, req: StudioRequest) {
   after(async () => {
     try {
       const sources = await selectedSources(db, notebookId)
       const result = await generateStudio(db, sources, req)
+      const script = req.kind === "audio" ? parseStudioData("audio", result.data) : null
+      if (script) {
+        must(await db.from("notes").update({ title: result.title, data: { ...result.data, stage: "voices" } }).eq("id", noteId))
+        result.data = { ...result.data, audio: await voiceover(db, notebookId, noteId, script, req.language) }
+      }
       await db.from("notes").update({ ...result, status: "ready", error: null }).eq("id", noteId)
     } catch (e) {
       await db.from("notes").update({ status: "failed", error: userMessage(e) }).eq("id", noteId)
@@ -255,3 +366,27 @@ export const ensureSourceSummary = action([id, id], async (notebookId, sourceId)
   must(await db.from("sources").update({ summary }).eq("id", sourceId))
   return { summary }
 })
+
+export const askHosts = action(
+  [id, id, z.string().trim().min(1, "Bitte stelle eine Frage").max(500), z.number().int().min(0).max(1000)],
+  async (notebookId, noteId, question, heard) => {
+    const db = await createClient()
+    const note = must(await db.from("notes").select("data").eq("id", noteId).eq("notebook_id", notebookId).single())
+    const script = parseStudioData("audio", note.data)
+    if (!script) throw new UserError("Diese Ausgabe ist keine Audio-Zusammenfassung")
+    const stored = (note.data as { language?: string }).language
+    const language = stored && stored in LANGUAGES ? (stored as Language) : "Deutsch"
+    const all = must(await db.from("sources").select("*").eq("notebook_id", notebookId).order("created_at"))
+    const sources = all.some((s) => s.selected) ? all.filter((s) => s.selected) : all
+    if (!sources.length) throw new UserError("Dieses Notebook hat keine Quellen")
+    await chargeQuota(db)
+    const turns = await answerListener(db, sources, script, heard, question, language)
+    const voiced = (await claimTts(db, notebookId, turns, "eleven_v4_turbo").catch(() => false))
+      ? await synthesize(turns, language, "eleven_v4_turbo").catch(() => null)
+      : null
+    return {
+      turns,
+      audio: voiced && { src: `data:audio/mpeg;base64,${voiced.audio.toString("base64")}`, turns: voiced.turns },
+    }
+  }
+)

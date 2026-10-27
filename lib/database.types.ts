@@ -124,6 +124,7 @@ export type Database = {
       notebooks: {
         Row: {
           created_at: string
+          featured: boolean
           guide: Json | null
           id: string
           instructions: string
@@ -133,6 +134,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          featured?: boolean
           guide?: Json | null
           id?: string
           instructions?: string
@@ -142,6 +144,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          featured?: boolean
           guide?: Json | null
           id?: string
           instructions?: string
@@ -260,20 +263,65 @@ export type Database = {
           },
         ]
       }
+      tts_usage: {
+        Row: {
+          characters: number
+          created_at: string
+          credits: number
+          id: string
+          model: string
+          notebook_id: string | null
+          user_id: string
+        }
+        Insert: {
+          characters: number
+          created_at?: string
+          credits: number
+          id?: string
+          model: string
+          notebook_id?: string | null
+          user_id?: string
+        }
+        Update: {
+          characters?: number
+          created_at?: string
+          credits?: number
+          id?: string
+          model?: string
+          notebook_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tts_usage_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tts_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
-          email: string
+          email: string | null
           id: string
         }
         Insert: {
           created_at?: string
-          email: string
+          email?: string | null
           id: string
         }
         Update: {
           created_at?: string
-          email?: string
+          email?: string | null
           id?: string
         }
         Relationships: []
@@ -284,6 +332,10 @@ export type Database = {
     }
     Functions: {
       can_edit_notebook: { Args: { nid: string }; Returns: boolean }
+      claim_tts: {
+        Args: { chars: number; credits: number; model: string; nid: string }
+        Returns: string
+      }
       consume_ai_quota: { Args: never; Returns: number }
       invite_member: {
         Args: { member_email: string; member_role: string; nid: string }
@@ -295,7 +347,15 @@ export type Database = {
       job_status: "pending" | "ready" | "failed"
       member_role: "viewer" | "editor"
       message_role: "user" | "assistant"
-      note_kind: "note" | "report" | "flashcards" | "quiz" | "mindmap" | "audio"
+      note_kind:
+        | "note"
+        | "report"
+        | "flashcards"
+        | "quiz"
+        | "mindmap"
+        | "audio"
+        | "slides"
+        | "table"
       source_kind: "text" | "url" | "pdf"
     }
     CompositeTypes: {
@@ -427,7 +487,16 @@ export const Constants = {
       job_status: ["pending", "ready", "failed"],
       member_role: ["viewer", "editor"],
       message_role: ["user", "assistant"],
-      note_kind: ["note", "report", "flashcards", "quiz", "mindmap", "audio"],
+      note_kind: [
+        "note",
+        "report",
+        "flashcards",
+        "quiz",
+        "mindmap",
+        "audio",
+        "slides",
+        "table",
+      ],
       source_kind: ["text", "url", "pdf"],
     },
   },

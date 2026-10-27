@@ -5,10 +5,8 @@ import { animate, AnimatePresence, motion, useMotionValue, useTransform, type Pa
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
-  MinusIcon,
   PauseIcon,
   PlayIcon,
-  PlusIcon,
   RotateCcwIcon,
   ShuffleIcon,
 } from "lucide-react"
@@ -16,7 +14,9 @@ import { Cover } from "@/components/notebook/brand"
 import { Markdown } from "@/components/notebook/markdown"
 import { Button } from "@/components/ui/button"
 import { SPRING_LAYOUT, SPRING_PANEL, SPRING_PRESS, SPRING_SWAP } from "@/lib/ease"
-import { LANGUAGES, type AudioScript, type Flashcards, type Language, type MindMap, type Quiz } from "@/lib/studio"
+import { pickVoices } from "@/components/notebook/audio-player"
+import { speakable } from "@/lib/audio"
+import { HOSTS, LANGUAGES, type AudioScript, type Flashcards, type Language, type Quiz } from "@/lib/studio"
 import { cn } from "@/lib/utils"
 
 export function ReportView({ content }: { content: string }) {
@@ -308,186 +308,7 @@ export function QuizView({ data }: { data: Quiz }) {
   )
 }
 
-const BRANCH_TINTS = [
-  "bg-[oklch(0.93_0.06_45)] text-[oklch(0.4_0.12_40)] dark:bg-[oklch(0.35_0.08_40)] dark:text-[oklch(0.92_0.05_50)]",
-  "bg-[oklch(0.93_0.04_250)] text-[oklch(0.38_0.1_255)] dark:bg-[oklch(0.33_0.06_255)] dark:text-[oklch(0.92_0.04_250)]",
-  "bg-[oklch(0.93_0.05_155)] text-[oklch(0.36_0.08_160)] dark:bg-[oklch(0.33_0.06_160)] dark:text-[oklch(0.92_0.05_155)]",
-  "bg-[oklch(0.93_0.05_300)] text-[oklch(0.38_0.12_300)] dark:bg-[oklch(0.33_0.07_300)] dark:text-[oklch(0.92_0.05_300)]",
-  "bg-[oklch(0.93_0.05_15)] text-[oklch(0.4_0.13_15)] dark:bg-[oklch(0.33_0.07_15)] dark:text-[oklch(0.92_0.05_15)]",
-  "bg-[oklch(0.93_0.06_95)] text-[oklch(0.4_0.09_90)] dark:bg-[oklch(0.35_0.07_90)] dark:text-[oklch(0.92_0.06_95)]",
-]
-
-const LINK =
-  "relative flex items-center pl-7 before:absolute before:top-1/2 before:left-0 before:w-7 before:border-t before:border-foreground/15 after:absolute after:inset-y-0 after:left-0 after:border-l after:border-foreground/15 first:after:top-1/2 last:after:bottom-1/2 only:after:hidden"
-
-const STUB = "relative pl-7 before:absolute before:top-1/2 before:left-0 before:w-7 before:border-t before:border-foreground/15"
-
-function Branch({ open, children }: { open: boolean; children: React.ReactNode }) {
-  return (
-    <AnimatePresence initial={false}>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0, x: -10, scale: 0.97 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: -10, scale: 0.97, transition: { duration: 0.15 } }}
-          transition={SPRING_LAYOUT}
-          className={cn(STUB, "origin-left")}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
-export function MindMapView({ data }: { data: MindMap }) {
-  const [closed, setClosed] = useState<Set<string>>(new Set())
-  const toggle = (id: string) =>
-    setClosed((c) => {
-      const next = new Set(c)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  const all = data.branches.flatMap((b, i) => [`${i}`, ...b.children.map((_, j) => `${i}-${j}`)])
-
-  return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex gap-1">
-        <Button size="sm" variant="ghost" onClick={() => setClosed(new Set())}>
-          <PlusIcon /> Alles aufklappen
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setClosed(new Set(all))}>
-          <MinusIcon /> Alles einklappen
-        </Button>
-      </div>
-      <div className="-mx-6 overflow-auto px-6 pb-6">
-        <motion.div layout transition={SPRING_LAYOUT} className="flex min-w-max items-center py-4">
-          <motion.span
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={SPRING_PANEL}
-            className="rounded-full bg-foreground px-5 py-2.5 font-serif text-xl text-background"
-          >
-            {data.title}
-          </motion.span>
-          <div className={STUB}>
-            <ul className="flex flex-col">
-              {data.branches.map((branch, i) => {
-                const id = `${i}`
-                return (
-                  <motion.li
-                    key={id}
-                    layout="position"
-                    initial={{ opacity: 0, x: -12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ ...SPRING_LAYOUT, delay: 0.08 + i * 0.05 }}
-                    className={cn(LINK, "py-1.5")}
-                  >
-                    <MapNode
-                      label={branch.title}
-                      count={branch.children.length}
-                      open={!closed.has(id)}
-                      onToggle={() => toggle(id)}
-                      className={cn("px-4 py-2 text-sm font-medium", BRANCH_TINTS[i % BRANCH_TINTS.length])}
-                    />
-                    {branch.children.length > 0 && (
-                      <Branch open={!closed.has(id)}>
-                        <ul className="flex flex-col">
-                          {branch.children.map((child, j) => {
-                            const cid = `${i}-${j}`
-                            return (
-                              <motion.li key={cid} layout="position" transition={SPRING_LAYOUT} className={cn(LINK, "py-[3px]")}>
-                                <MapNode
-                                  label={child.title}
-                                  count={child.children.length}
-                                  open={!closed.has(cid)}
-                                  onToggle={() => toggle(cid)}
-                                  className="border bg-card px-3 py-1.5 text-sm"
-                                />
-                                {child.children.length > 0 && (
-                                  <Branch open={!closed.has(cid)}>
-                                    <ul className="flex flex-col">
-                                      {child.children.map((leaf, k) => (
-                                        <li key={k} className={cn(LINK, "py-0.5")}>
-                                          <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{leaf}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </Branch>
-                                )}
-                              </motion.li>
-                            )
-                          })}
-                        </ul>
-                      </Branch>
-                    )}
-                  </motion.li>
-                )
-              })}
-            </ul>
-          </div>
-        </motion.div>
-      </div>
-    </div>
-  )
-}
-
-function MapNode({
-  label,
-  count,
-  open,
-  onToggle,
-  className,
-}: {
-  label: string
-  count: number
-  open: boolean
-  onToggle: () => void
-  className?: string
-}) {
-  return (
-    <motion.button
-      onClick={onToggle}
-      disabled={!count}
-      aria-expanded={count ? open : undefined}
-      whileHover={count ? { scale: 1.04 } : undefined}
-      whileTap={count ? { scale: 0.96 } : undefined}
-      transition={SPRING_PRESS}
-      className={cn("flex items-center gap-2 rounded-full", className)}
-    >
-      {label}
-      {count > 0 && (
-        <span className="flex size-4 items-center justify-center rounded-full bg-current/10 font-mono text-[9px]">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={open ? "open" : "closed"}
-              initial={{ opacity: 0, rotate: -90 }}
-              animate={{ opacity: 1, rotate: 0 }}
-              exit={{ opacity: 0, rotate: 90 }}
-              transition={{ duration: 0.15 }}
-            >
-              {open ? "−" : count}
-            </motion.span>
-          </AnimatePresence>
-        </span>
-      )}
-    </motion.button>
-  )
-}
-
-const SPEAKERS = { A: "Mara", B: "Jonas" }
 const RATES = [1, 1.25, 1.5]
-
-function pickVoices(lang: string) {
-  const score = (v: SpeechSynthesisVoice) =>
-    (/premium|enhanced|natural|neural/i.test(v.name) ? 4 : 0) + (/google|microsoft/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1)
-  const voices = speechSynthesis
-    .getVoices()
-    .filter((v) => v.lang.toLowerCase().startsWith(lang))
-    .sort((a, b) => score(b) - score(a))
-  return [voices[0], voices[1] ?? voices[0]] as const
-}
 
 export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; language?: Language }) {
   const [current, setCurrent] = useState(-1)
@@ -514,7 +335,7 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
     speechSynthesis.cancel()
     const [a, b] = pickVoices(lang)
     data.turns.slice(from).forEach((turn, k) => {
-      const utterance = new SpeechSynthesisUtterance(turn.text)
+      const utterance = new SpeechSynthesisUtterance(speakable(turn.text))
       utterance.lang = lang
       utterance.rate = speed
       utterance.voice = (turn.speaker === "A" ? a : b) ?? null
@@ -566,7 +387,7 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
           </motion.button>
           <div className="min-w-0 flex-1">
             <p className="font-mono text-[10.5px] tracking-widest text-neutral-900/60 uppercase">
-              {SPEAKERS.A} & {SPEAKERS.B} · {data.turns.length} Abschnitte
+              {HOSTS.A} & {HOSTS.B} · Browser-Stimmen
             </p>
             <div className="mt-3 flex h-12 items-center gap-[3px]" aria-hidden>
               {bars.map((h, i) => (
@@ -617,6 +438,9 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
           </div>
         </div>
       </Cover>
+      <p className="-mt-3 px-1 text-xs text-muted-foreground">
+        Für diese Folge standen keine KI-Stimmen zur Verfügung, deshalb liest dein Browser das Skript vor.
+      </p>
 
       <ol ref={listRef} className="flex flex-col gap-1">
         {data.turns.map((turn, i) => (
@@ -631,14 +455,14 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
                   turn.speaker === "A" ? "text-signal" : "text-muted-foreground"
                 )}
               >
-                {SPEAKERS[turn.speaker]}
+                {HOSTS[turn.speaker]}
               </span>
               <motion.span
                 animate={{ opacity: current >= 0 && current !== i ? 0.55 : 1 }}
                 transition={{ duration: 0.3 }}
                 className="relative text-[15px] leading-relaxed"
               >
-                {turn.text}
+                {speakable(turn.text)}
               </motion.span>
             </button>
           </li>

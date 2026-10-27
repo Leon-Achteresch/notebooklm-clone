@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export function UserMenu({ email }: { email: string }) {
+export function UserMenu({ email, guest = false }: { email: string; guest?: boolean }) {
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === "dark"
   return (
@@ -27,13 +27,18 @@ export function UserMenu({ email }: { email: string }) {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="truncate font-normal">{email}</DropdownMenuLabel>
+          {guest && (
+            <p className="px-2 pb-1.5 text-xs text-muted-foreground">
+              Nach dem Abmelden sind deine Notebooks nicht mehr erreichbar.
+            </p>
+          )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setTheme(dark ? "light" : "dark")}>
           {dark ? <SunIcon /> : <MoonIcon />} {dark ? "Helles Design" : "Dunkles Design"}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => logout()}>
-          <LogOutIcon /> Abmelden
+          <LogOutIcon /> {guest ? "Gastsitzung beenden" : "Abmelden"}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
