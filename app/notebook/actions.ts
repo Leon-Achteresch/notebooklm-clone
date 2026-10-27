@@ -73,9 +73,12 @@ async function settled<T>(tasks: Promise<T>[]) {
 async function purge(db: Db, notebookId: string) {
   await Promise.all(
     (["sources", "studio"] as const).map(async (bucket) => {
-      const { data } = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
-      const names = data?.map((f) => `${notebookId}/${f.name}`) ?? []
-      if (names.length) await db.storage.from(bucket).remove(names)
+      const listed = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
+      if (listed.error) throw listed.error
+      const names = listed.data.map((f) => `${notebookId}/${f.name}`)
+      if (!names.length) return
+      const { error } = await db.storage.from(bucket).remove(names)
+      if (error) throw error
     })
   )
   must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())

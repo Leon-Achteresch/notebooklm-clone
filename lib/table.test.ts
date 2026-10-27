@@ -88,8 +88,8 @@ test("quotes separators, quotes and line breaks", () => {
 test("neutralises spreadsheet formulas but keeps signed numbers", () => {
   assert.equal(toDelimited([["=HYPERLINK(1)", "-2,5", "+12 %", "-", "@SUM(A1)"]], ";"), "'=HYPERLINK(1);-2,5;+12 %;-;'@SUM(A1)")
   assert.equal(
-    toDelimited([["-1+cmd|'/C calc'!A0", "-1+SUM(A:A)", "-1.234,5", "-5 °C", "-3 Mio. €", "+4 km/h"]], ";"),
-    "'-1+cmd|'/C calc'!A0;'-1+SUM(A:A);-1.234,5;-5 °C;-3 Mio. €;+4 km/h"
+    toDelimited([["-1+cmd|'/C calc'!A0", "-1+SUM(A:A)", "-1.234,5", "-5 °C", "-3 Mio. €", "-5 km/h", "+1/a", "+1/0", "+1/2"]], ";"),
+    "'-1+cmd|'/C calc'!A0;'-1+SUM(A:A);-1.234,5;-5 °C;-3 Mio. €;-5 km/h;'+1/a;'+1/0;'+1/2"
   )
 })
 
