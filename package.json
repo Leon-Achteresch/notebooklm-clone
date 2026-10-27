@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "node --test lib/*.test.ts",
     "db:types": "supabase gen types typescript --project-id wpoievccyilhjxqrxudd > lib/database.types.ts",
     "test:db": "psql \"$DATABASE_URL\" -f supabase/tests/authorization.sql 2>&1 | tee /dev/stderr | grep -q ALL_OK"
