@@ -85,6 +85,21 @@ test("history keeps only the newest turns that fit the character budget", () => 
   )
 })
 
+test("history shortens the turn that crosses the budget instead of losing the latest exchange", () => {
+  const history = toHistory(
+    [
+      { role: "assistant", content: "Antwort" },
+      { role: "user", content: "langer Text … Frage?" },
+      { role: "assistant", content: "A1" },
+    ],
+    13
+  )
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["Frage?", "Antwort"]
+  )
+})
+
 test("reads events split across arbitrary chunk boundaries", async () => {
   const sent: ChatEvent[] = [{ type: "text", text: "Hallo „Welt“ 🐝" }, { type: "done" }]
   const bytes = new TextEncoder().encode(sent.map(encodeEvent).join(""))

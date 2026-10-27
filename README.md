@@ -131,7 +131,7 @@ docker run -p 3000:3000 --env-file .env.local folio
 - Anonyme Gastkonten werden nicht automatisch aufgeräumt.
 - Vor dem Gastzugang steht kein CAPTCHA. Folio begrenzt neue Gastkonten pro IP, und die globalen Tagesgrenzen deckeln die Kosten, falls trotzdem viele Gastkonten über viele IPs entstehen.
 - Die Rate-Limits liegen im Speicher des Server-Prozesses. Sie gelten pro Instanz und beginnen nach einem Neustart von vorn. Bei mehreren Instanzen gehören sie in Postgres oder Redis.
-- Die IP stammt aus dem letzten Eintrag von `X-Forwarded-For`, den der vorgeschaltete Proxy (Traefik in Coolify) setzt. Steht ein weiterer Proxy wie ein CDN davor, muss diese Stelle angepasst werden.
+- Die IP stammt aus dem letzten Eintrag von `X-Forwarded-For`, den der vorgeschaltete Proxy (Traefik in Coolify) setzt. Steht ein weiterer Proxy wie ein CDN davor, muss diese Stelle angepasst werden. Ohne vorgeschalteten Proxy (direktes `docker run`) kann ein Client den Header selbst setzen und die IP-Limits umgehen; Next.js gibt die Socket-Adresse nicht an die App weiter.
 - Wie in jeder Supabase-App erreicht ein angemeldeter Nutzer Datenbank und Storage auch direkt über die API. RLS schützt dabei fremde Daten, die Pacer-Limits gelten aber nur für Wege über den Folio-Server. Direkte Aufrufe von `consume_ai_quota()` und `claim_tts()` oder direkte Uploads können Tageskontingente leeren oder Speicher füllen. KI- oder Sprachkosten lösen sie nicht aus, denn die Keys benutzt nur der Server.
 - Die Wellenform wird im Browser aus der kompletten Datei berechnet. Bei sehr langen Podcasts wäre eine serverseitig vorberechnete Wellenform mit gestreamtem Audio schneller.
 

@@ -70,9 +70,10 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/noteboo
           { signal: request.signal }
         )
         for await (const event of response) answer.push(event).forEach(send)
-        if ((await response.finalMessage()).stop_reason === "refusal") send(answer.refuse())
+        const { stop_reason } = await response.finalMessage()
+        if (stop_reason === "refusal") send(answer.refuse())
         await persist()
-        send({ type: "done" })
+        send(stop_reason === "max_tokens" ? { type: "error", error: "Die Antwort war zu lang und wurde gekürzt." } : { type: "done" })
       } catch (e) {
         await persist()
         if (!request.signal.aborted) send({ type: "error", error: userMessage(e) })

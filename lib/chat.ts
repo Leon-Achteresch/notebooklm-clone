@@ -62,9 +62,9 @@ export function toHistory(newestFirst: Pick<Message, "role" | "content">[], budg
   let left = budget
   for (const m of newestFirst) {
     if (!m.content.trim()) continue
+    if (left <= 0) break
+    turns.unshift(m.content.length > left ? { ...m, content: m.content.slice(-left) } : m)
     left -= m.content.length
-    if (left < 0) break
-    turns.unshift(m)
   }
   while (turns[0]?.role === "assistant") turns.shift()
   return turns.map((m) => ({ role: m.role, content: m.content }))
