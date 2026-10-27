@@ -63,7 +63,7 @@ export function toHistory(newestFirst: Pick<Message, "role" | "content">[], budg
   for (const m of newestFirst) {
     if (!m.content.trim()) continue
     if (left <= 0) break
-    turns.unshift(m.content.length > left ? { ...m, content: m.content.slice(-left) } : m)
+    turns.unshift(m.content.length > left ? { ...m, content: m.content.slice(-left).toWellFormed() } : m)
     left -= m.content.length
   }
   while (turns[0]?.role === "assistant") turns.shift()

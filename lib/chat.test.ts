@@ -100,6 +100,14 @@ test("history shortens the turn that crosses the budget instead of losing the la
   )
 })
 
+test("history never leaves half an emoji when it shortens a turn", () => {
+  const history = toHistory([{ role: "user", content: "Was fressen Bienen 🐝?" }], 2)
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["�?"]
+  )
+})
+
 test("reads events split across arbitrary chunk boundaries", async () => {
   const sent: ChatEvent[] = [{ type: "text", text: "Hallo „Welt“ 🐝" }, { type: "done" }]
   const bytes = new TextEncoder().encode(sent.map(encodeEvent).join(""))
