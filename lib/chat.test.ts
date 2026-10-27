@@ -69,6 +69,45 @@ test("history is chronological, starts with the user and skips empty turns", () 
   )
 })
 
+test("history keeps only the newest turns that fit the character budget", () => {
+  const history = toHistory(
+    [
+      { role: "assistant", content: "A2" },
+      { role: "user", content: "U2" },
+      { role: "assistant", content: "A1 mit einer sehr langen Antwort" },
+      { role: "user", content: "U1" },
+    ],
+    4
+  )
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["U2", "A2"]
+  )
+})
+
+test("history shortens the turn that crosses the budget instead of losing the latest exchange", () => {
+  const history = toHistory(
+    [
+      { role: "assistant", content: "Antwort" },
+      { role: "user", content: "langer Text … Frage?" },
+      { role: "assistant", content: "A1" },
+    ],
+    13
+  )
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["Frage?", "Antwort"]
+  )
+})
+
+test("history never leaves half an emoji when it shortens a turn", () => {
+  const history = toHistory([{ role: "user", content: "Was fressen Bienen 🐝?" }], 2)
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["�?"]
+  )
+})
+
 test("reads events split across arbitrary chunk boundaries", async () => {
   const sent: ChatEvent[] = [{ type: "text", text: "Hallo „Welt“ 🐝" }, { type: "done" }]
   const bytes = new TextEncoder().encode(sent.map(encodeEvent).join(""))

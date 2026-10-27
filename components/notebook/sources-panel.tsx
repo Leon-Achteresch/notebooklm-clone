@@ -576,6 +576,7 @@ export function AddSourceDialog({
                 rows={9}
                 placeholder="Notizen, Artikel, Transkripte …"
                 aria-label="Text"
+                className="max-h-[40vh]"
               />
               <Button type="submit" disabled={pending} className="self-end">
                 {pending && <Spinner />} Hinzufügen

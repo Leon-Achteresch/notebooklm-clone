@@ -57,8 +57,15 @@ export function createAnswer(sources: Pick<Source, "id" | "title">[]) {
   }
 }
 
-export function toHistory(newestFirst: Pick<Message, "role" | "content">[]): Anthropic.MessageParam[] {
-  const turns = [...newestFirst].reverse().filter((m) => m.content.trim())
+export function toHistory(newestFirst: Pick<Message, "role" | "content">[], budget = 40_000): Anthropic.MessageParam[] {
+  const turns: Pick<Message, "role" | "content">[] = []
+  let left = budget
+  for (const m of newestFirst) {
+    if (!m.content.trim()) continue
+    if (left <= 0) break
+    turns.unshift(m.content.length > left ? { ...m, content: m.content.slice(-left).toWellFormed() } : m)
+    left -= m.content.length
+  }
   while (turns[0]?.role === "assistant") turns.shift()
   return turns.map((m) => ({ role: m.role, content: m.content }))
 }

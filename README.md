@@ -2,7 +2,7 @@
 
 Ein NotebookLM-Klon. Du sammelst Quellen (Text, PDF, Webseiten, Websuche), chattest mit belegten Antworten darüber und erzeugst daraus einen Podcast mit echten Stimmen, Präsentationen, Mindmaps, Datentabellen, Berichte, Karteikarten und Quiz.
 
-**Stack:** Next.js 16 (App Router, Server Actions, Turbopack) · React 19 · Supabase (Postgres, Auth, RLS, Realtime, Storage) · Claude Haiku 5.5 über das Anthropic SDK · ElevenLabs Text-to-Dialogue · zod 4 · motion 14 · Tailwind 4 · base-ui
+**Stack:** Next.js 16 (App Router, Server Actions, Turbopack) · React 19 · Supabase (Postgres, Auth, RLS, Realtime, Storage) · Claude Haiku 5.5 über das Anthropic SDK · ElevenLabs Text-to-Dialogue · TanStack Pacer · zod 4 · motion 14 · Tailwind 4 · base-ui
 
 ## Funktionen
 
@@ -80,7 +80,7 @@ flowchart LR
 
 ## Entscheidungen
 
-**Langer Kontext statt RAG.** Haiku 5.5 hat 1M Token Kontext. Ausgewählte Quellen gehen vollständig als `document`-Blöcke mit aktivierten Zitaten in den Prompt, der letzte Block trägt `cache_control`. Damit entfallen Chunking, Embeddings und Vektor-DB, und Zitate zeigen exakt auf die zitierte Stelle statt auf einen Chunk. Die Reihenfolge ist stabil (Quellen → Verlauf → Frage), sodass Folgefragen den Prompt-Cache treffen. Grenze: Notebooks jenseits ~1M Token bräuchten Retrieval davor.
+**Langer Kontext statt RAG.** Haiku 5.5 hat 1M Token Kontext. Ausgewählte Quellen gehen vollständig als `document`-Blöcke mit aktivierten Zitaten in den Prompt, der letzte Block trägt `cache_control`. Damit entfallen Chunking, Embeddings und Vektor-DB, und Zitate zeigen exakt auf die zitierte Stelle statt auf einen Chunk. Die Reihenfolge ist stabil (Quellen → Verlauf → Frage), sodass Folgefragen den Prompt-Cache treffen. Grenze: Eine Anfrage darf aus Kostengründen höchstens 200.000 Token groß sein (siehe Kostenkontrolle). Größere Notebooks bräuchten Retrieval davor.
 
 **Autorisierung in der Datenbank.** RLS auf jeder Tabelle und jedem Storage-Bucket, entschieden von zwei `security definer`-Funktionen (`notebook_role`, `can_edit_notebook`). Server und Client fragen mit dem Nutzer-JWT, es gibt keinen Service-Key im App-Code. Ein Bug in einer Route kann so keine fremden Daten lesen. `supabase/tests/authorization.sql` prüft Eigentümer, Fremde, Viewer, Editor, Einladungsrechte, Gast-Limits und das Audio-Budget.
 
@@ -95,6 +95,16 @@ flowchart LR
 **Mitreden.** Die Frage geht zusammen mit dem Skript und der Stelle, an der du unterbrochen hast, an Claude. Zurück kommen zwei bis vier kurze, belegte Repliken der Hosts. Sie werden mit dem schnellen Modell vertont, im Transkript an der Unterbrechungsstelle eingefügt und abgespielt, danach läuft der Podcast weiter. Die Spracheingabe nutzt die Web Speech API des Browsers.
 
 **Kostenkontrolle.** Jeder KI-Aufruf zieht vorher `consume_ai_quota()` (200 pro Nutzer und Tag, 40 für Gäste, atomar per Upsert). Dazu kommen globale Tagesgrenzen: 500 Anfragen für alle Gäste zusammen und 2000 insgesamt, damit massenhaft angelegte Gastkonten die Kosten nicht treiben. Jede Vertonung reserviert vorher Credits über `claim_tts()`: ein globales Budget, höchstens 2500 Credits pro Auftrag und 10 Vertonungen pro Tag (3 für Gäste). Die Reservierung ist per Advisory-Lock serialisiert, damit parallele Anfragen das Budget nicht gemeinsam überschreiten. Die Buchungen bleiben auch erhalten, wenn ein Konto gelöscht wird, damit das Budget nicht zurückfließt. Ist das Budget erschöpft, läuft der Podcast mit Browser-Stimmen weiter, statt zu scheitern. Gecachte Ergebnisse (Leitfaden, Quellen-Zusammenfassung) werden vor der Quota geprüft und kosten nichts.
+
+**Schutz vor Missbrauch der API-Keys.** Die Keys liegen nur in Umgebungsvariablen und in Modulen mit `import "server-only"`, der Browser sieht sie nie. Vor der Tagesquota greifen Rate-Limits mit gleitenden Fenstern aus TanStack Pacer (`lib/rate-limit.ts`). Sie gelten für 12 KI-Anfragen pro Minute und Nutzer sowie für 30 pro Minute und 400 pro Tag und IP. Weitere Limits pro IP:
+
+| Aktion | Limit pro IP |
+| --- | --- |
+| Login und Registrierung | 10 in 15 Minuten |
+| Neue Gastkonten | 5 pro Stunde |
+| Uploads und Kopien | 30 pro Stunde |
+
+Weil Supabase die Anmeldungen vom Server bekommt und dort nur dessen IP sieht, verhindern diese Limits zugleich, dass ein einzelner Angreifer Supabases gemeinsames Anmeldelimit für alle aufbraucht. Jede Anfrage mit Quellen wird vorher über `messages.countTokens` gezählt, ab 200.000 Token wird sie abgelehnt. Diese Grenze hält auch eine absichtlich riesige Anfrage günstig. Chat-Antworten sind auf 8000 Token begrenzt, der mitgeschickte Verlauf auf die jüngsten 40.000 Zeichen und abgerufene Webseiten auf 50.000 Token.
 
 **Gastzugang.** „Ohne Konto ausprobieren“ nutzt Supabase Anonymous Sign-ins. Gäste sind normale Nutzer mit eigenen, kleineren Limits und sehen unter „Entdecken“ ein Beispiel-Notebook. Nur die Datenbank selbst kann ein Notebook als Beispiel markieren: Ein Trigger verhindert, dass Nutzer `featured` setzen, und ein Check-Constraint erlaubt es nur für öffentliche Notebooks. „Eigene Kopie“ dupliziert Quellen, PDFs, Studio-Ergebnisse und Podcast-Dateien in ein eigenes Notebook.
 
@@ -119,7 +129,10 @@ docker run -p 3000:3000 --env-file .env.local folio
 
 - E-Mail-Bestätigung ist im Supabase-Projekt ausgeschaltet, damit Registrierung sofort funktioniert. Für einen echten Betrieb gehört sie wieder an, zusammen mit eigenem SMTP.
 - Anonyme Gastkonten werden nicht automatisch aufgeräumt.
-- Vor dem Gastzugang steht kein CAPTCHA. Supabase begrenzt anonyme Anmeldungen pro IP, und die globalen Tagesgrenzen deckeln die Kosten, falls trotzdem viele Gastkonten entstehen.
+- Vor dem Gastzugang steht kein CAPTCHA. Folio begrenzt neue Gastkonten pro IP, und die globalen Tagesgrenzen deckeln die Kosten, falls trotzdem viele Gastkonten über viele IPs entstehen.
+- Die Rate-Limits liegen im Speicher des Server-Prozesses. Sie gelten pro Instanz und beginnen nach einem Neustart von vorn. Bei mehreren Instanzen gehören sie in Postgres oder Redis.
+- Die IP stammt aus dem letzten Eintrag von `X-Forwarded-For`, den der vorgeschaltete Proxy (Traefik in Coolify) setzt. Steht ein weiterer Proxy wie ein CDN davor, muss diese Stelle angepasst werden. Ohne vorgeschalteten Proxy (direktes `docker run`) kann ein Client den Header selbst setzen und die IP-Limits umgehen; Next.js gibt die Socket-Adresse nicht an die App weiter.
+- Wie in jeder Supabase-App erreicht ein angemeldeter Nutzer Datenbank und Storage auch direkt über die API. RLS schützt dabei fremde Daten, die Pacer-Limits gelten aber nur für Wege über den Folio-Server. Direkte Aufrufe von `consume_ai_quota()` und `claim_tts()` oder direkte Uploads können Tageskontingente leeren oder Speicher füllen. KI- oder Sprachkosten lösen sie nicht aus, denn die Keys benutzt nur der Server.
 - Die Wellenform wird im Browser aus der kompletten Datei berechnet. Bei sehr langen Podcasts wäre eine serverseitig vorberechnete Wellenform mit gestreamtem Audio schneller.
 
 ## Nächste Schritte
