@@ -87,6 +87,7 @@ test("quotes separators, quotes and line breaks", () => {
 
 test("neutralises spreadsheet formulas but keeps signed numbers", () => {
   assert.equal(toDelimited([["=HYPERLINK(1)", "-2,5", "+12 %", "-", "@SUM(A1)"]], ";"), "'=HYPERLINK(1);-2,5;+12 %;-;'@SUM(A1)")
+  assert.equal(toDelimited([["-1+cmd|'/C calc'!A0", "+3 Bienen", "-1.234,5"]], ";"), "'-1+cmd|'/C calc'!A0;'+3 Bienen;-1.234,5")
 })
 
 test("derives a safe file name from the title", () => {

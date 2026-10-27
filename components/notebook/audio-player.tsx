@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, memo, useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { AnimatePresence, motion, useMotionValue, useMotionValueEvent, useTransform, type MotionValue } from "motion/react"
 import { ArrowUpIcon, DownloadIcon, HandIcon, MicIcon, PauseIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, XIcon } from "lucide-react"
 import { askHosts } from "@/app/notebook/actions"
@@ -60,6 +60,14 @@ type Recognizer = {
   stop(): void
 }
 
+function hush(ref: RefObject<Recognizer | null>) {
+  const r = ref.current
+  ref.current = null
+  if (!r) return
+  r.onend = null
+  r.stop()
+}
+
 function recognition() {
   const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }
   return w.SpeechRecognition ?? w.webkitSpeechRecognition
@@ -100,6 +108,7 @@ export function AudioPlayer({
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const reply = useRef<HTMLAudioElement | null>(null)
+  const pending = useRef(0)
   const list = useRef<HTMLOListElement>(null)
   const [src, setSrc] = useState<string>()
   const [bars, setBars] = useState<number[]>()
@@ -149,6 +158,7 @@ export function AudioPlayer({
 
   useEffect(
     () => () => {
+      pending.current++
       reply.current?.pause()
       speechSynthesis.cancel()
     },
@@ -160,6 +170,7 @@ export function AudioPlayer({
   }, [at.turn, playing])
 
   const stopReply = () => {
+    pending.current++
     reply.current?.pause()
     reply.current = null
     speechSynthesis.cancel()
@@ -209,16 +220,20 @@ export function AudioPlayer({
   }
 
   const ask = async (question: string) => {
+    const ticket = ++pending.current
     setStage("thinking")
     const heard = Math.max(at.turn, 0)
     const result = await askHosts(notebookId, noteId, question, heard)
+    const current = ticket === pending.current
     if (!result.turns) {
+      if (!current) return
       toast.add({ title: result.error ?? "Etwas ist schiefgelaufen", type: "error" })
       setStage("compose")
       return
     }
     const r: Reply = { question, heard, turns: result.turns, timed: result.audio?.turns ?? null, src: result.audio?.src ?? null }
     setReplies((all) => [...all, r])
+    if (!current) return
     setStage("answer")
     startReply(r)
   }
@@ -650,7 +665,7 @@ function Composer({
   const [canListen] = useState(() => !!recognition())
   const recognizer = useRef<Recognizer | null>(null)
 
-  useEffect(() => () => recognizer.current?.stop(), [])
+  useEffect(() => () => hush(recognizer), [])
 
   const submit = (question: string) => {
     if (question.trim() && !thinking) onAsk(question.trim())
@@ -717,7 +732,17 @@ function Composer({
       <Button type="submit" size="icon-sm" disabled={thinking || !text.trim()} aria-label="Frage senden">
         <ArrowUpIcon />
       </Button>
-      <Button type="button" size="icon-sm" variant="ghost" onClick={onCancel} disabled={thinking} aria-label="Abbrechen">
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        onClick={() => {
+          hush(recognizer)
+          onCancel()
+        }}
+        disabled={thinking}
+        aria-label="Abbrechen"
+      >
         <XIcon />
       </Button>
     </form>

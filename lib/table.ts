@@ -49,7 +49,7 @@ export function sortRows(rows: string[][], column: number, direction: SortDirect
 }
 
 function cell(value: string, separator: string) {
-  const safe = /^[=+\-@\t\r][\s\S]/.test(value) && parseNumber(value) === null ? `'${value}` : value
+  const safe = /^[=+\-@\t\r][\s\S]/.test(value) && !/^[+-]\d[\d.,]*\s?%?$/.test(value) ? `'${value}` : value
   return safe.includes(separator) || /["\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 

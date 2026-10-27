@@ -71,15 +71,15 @@ export async function createNotebook() {
 
 export const deleteNotebook = action([id], async (notebookId) => {
   const db = await createClient()
-  const buckets = ["sources", "studio"] as const
-  const files = await Promise.all(buckets.map((b) => db.storage.from(b).list(notebookId, { limit: 10000 })))
-  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
+  if (must(await db.rpc("notebook_role", { nid: notebookId })) !== "owner") throw new UserError("Dafür fehlen dir die Rechte")
   await Promise.all(
-    buckets.map((b, i) => {
-      const names = files[i].data?.map((f) => `${notebookId}/${f.name}`) ?? []
-      return names.length ? db.storage.from(b).remove(names) : null
+    (["sources", "studio"] as const).map(async (bucket) => {
+      const { data } = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
+      const names = data?.map((f) => `${notebookId}/${f.name}`) ?? []
+      if (names.length) await db.storage.from(bucket).remove(names)
     })
   )
+  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
   revalidatePath("/")
 })
 

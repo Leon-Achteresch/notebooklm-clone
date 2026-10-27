@@ -79,7 +79,7 @@ export default async function Page() {
     <div className="min-h-svh">
       <header className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-10">
         <Wordmark />
-        <UserMenu email={isGuest ? "Gast" : email} />
+        <UserMenu email={isGuest ? "Gast" : email} guest={isGuest} />
       </header>
 
       <main className="mx-auto max-w-7xl px-6 pb-32 lg:px-10">
