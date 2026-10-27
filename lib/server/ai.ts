@@ -3,9 +3,10 @@ import Anthropic from "@anthropic-ai/sdk"
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod"
 import { z } from "zod"
 import { must, UserError } from "@/lib/server/action"
+import type { Json } from "@/lib/database.types"
 import type { Db } from "@/lib/supabase/server"
-import { AUDIO_FORMATS, REPORTS, studioSchemas, type StudioRequest } from "@/lib/studio"
-import type { Guide, Note, Source } from "@/lib/types"
+import { AUDIO_FORMATS, HOSTS, REPORTS, studioSchemas, type AudioScript, type Language, type StudioRequest } from "@/lib/studio"
+import type { Guide, Source } from "@/lib/types"
 
 export const anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY })
 
@@ -78,8 +79,16 @@ export async function discoverSources(topic: string) {
   return [...results].slice(0, 10).map(([url, title]) => ({ url, title }))
 }
 
+const PODCAST_RULES = [
+  `Die Moderatoren sind ${HOSTS.A} (Sprecherin A) und ${HOSTS.B} (Sprecher B). A eröffnet mit einem Einstieg, der neugierig macht, B schließt mit einem prägnanten Fazit.`,
+  "Natürliche gesprochene Sprache: kurze Sätze, echte Rückfragen, Reaktionen und Aha-Momente; die beiden sprechen sich gelegentlich mit Namen an.",
+  "Fakten, Zahlen und Beispiele stammen ausschließlich aus den Quellen.",
+  "Setze sparsam Audio-Tags für Emotionen am Anfang eines Beitrags, insgesamt höchstens sechs, nur diese: [laughs], [curious], [excited], [sighs].",
+  "Kein Markdown, keine Aufzählungen, keine Regieanweisungen außer den Audio-Tags, keine Namen als Präfix. Schreibe Zahlen und Abkürzungen so, wie man sie ausspricht. Jeder Beitrag höchstens 400 Zeichen.",
+].join(" ")
+
 function studioTask(req: StudioRequest) {
-  const lang = `Schreibe auf ${req.language}.`
+  const lang = `Schreibe auf ${req.language}.${req.focus ? ` Schwerpunkt des Nutzers: „${req.focus}“.` : ""}`
   switch (req.kind) {
     case "report":
       return `Erstelle ${REPORTS[req.type].prompt} auf Basis der Quellen. Nutze Markdown mit Überschriften, beginne mit einer H1-Überschrift als Titel. ${lang}`
@@ -89,8 +98,25 @@ function studioTask(req: StudioRequest) {
       return `Erstelle ein Multiple-Choice-Quiz mit 10 Fragen zu den Quellen. Jede Frage hat genau 4 Antwortoptionen, answer_index ist der 0-basierte Index der richtigen Option, explanation begründet die Antwort. ${lang}`
     case "mindmap":
       return `Erstelle eine Mindmap der Quellen: title ist das zentrale Thema, darunter 4 bis 7 Hauptäste mit je 2 bis 5 Unterthemen und je 0 bis 4 Detailpunkten. Kurze Stichworte. ${lang}`
-    case "audio":
-      return `Schreibe das Skript für einen Podcast mit zwei Moderatoren (A und B) über die Quellen: ${AUDIO_FORMATS[req.format].prompt}. Natürliche gesprochene Sprache, keine Regieanweisungen, kein Markdown, keine Aufzählungen. A eröffnet die Folge. ${lang}`
+    case "slides":
+      return [
+        "Erstelle eine Präsentation mit 8 bis 12 Folien auf Basis der Quellen. title ist der Titel, subtitle eine Unterzeile.",
+        'Folie 1 hat das Layout "title" (heading = Titel, body = Unterzeile, kicker = Thema). Wähle danach je Folie das passende Layout und wechsle sie ab:',
+        "bullets: heading und 3 bis 5 points (label = kurzes Stichwort, text = ein Satz).",
+        "statement: heading ist eine Kernaussage mit höchstens 15 Wörtern, body optional.",
+        "stat: figure ist eine markante Zahl aus den Quellen (z. B. „80 %“), heading erklärt sie, body gibt Kontext.",
+        "quote: heading ist ein wörtliches Zitat aus den Quellen, body nennt die Quelle.",
+        "comparison: heading und genau 2 points (label = Seite, text = 1 bis 3 Sätze).",
+        "timeline: heading und 3 bis 6 points (label = Datum oder Zeitraum, text = Ereignis).",
+        "Nutze stat, quote und timeline nur, wenn die Quellen passende Zahlen, Zitate oder Daten enthalten. kicker ist eine optionale kurze Überzeile, notes sind 2 bis 4 Sätze Sprechernotizen. Unbenutzte Felder sind leere Zeichenketten, unbenutzte points eine leere Liste. Knappe Folientexte, Details gehören in die Notizen.",
+        lang,
+      ].join(" ")
+    case "table":
+      return `Erstelle eine Datentabelle, die die wichtigsten vergleichbaren Fakten der Quellen strukturiert, etwa Akteure, Ereignisse, Kennzahlen oder Eigenschaften. title ist der Tabellentitel, description erklärt in einem Satz, was verglichen wird. 3 bis 7 aussagekräftige columns und 5 bis 20 rows; jede Zeile hat genau so viele Zellen wie Spalten, die erste Spalte benennt den Eintrag. Zellen kurz und präzise, Zahlen mit Einheit, „–“ wenn die Quellen nichts dazu sagen. ${lang}`
+    case "audio": {
+      const format = AUDIO_FORMATS[req.format]
+      return `Schreibe das Skript für eine Audio-Zusammenfassung im Stil eines Podcasts über die Quellen: ${format.prompt}. Insgesamt ${format.chars[0]} bis ${format.chars[1]} Zeichen gesprochener Text. ${PODCAST_RULES} ${lang}`
+    }
   }
 }
 
@@ -98,11 +124,12 @@ export async function generateStudio(
   db: Db,
   sources: Source[],
   req: StudioRequest
-): Promise<Pick<Note, "title" | "content" | "data">> {
+): Promise<{ title: string; content: string; data: { [key: string]: Json | undefined } }> {
   const documents = await sourceDocuments(db, sources, false)
   const base = {
     model: MODEL,
     max_tokens: 16000,
+    thinking: { type: "disabled" as const },
     system: GROUNDING,
     messages: [{ role: "user" as const, content: [...documents, { type: "text" as const, text: studioTask(req) }] }],
   }
@@ -180,3 +207,39 @@ export const CHAT_SYSTEM = [
   "Du bist ein Recherche-Assistent in einem Notebook. Beantworte Fragen ausschließlich auf Basis der bereitgestellten Quellen und belege Aussagen mit Zitaten aus den Quellen.",
   "Wenn die Quellen keine Antwort enthalten, sag das offen. Antworte in der Sprache der Frage und nutze bei Bedarf Markdown.",
 ].join("\n\n")
+
+const replySchema = z.object({ turns: studioSchemas.audio.shape.turns })
+
+export async function answerListener(db: Db, sources: Source[], script: AudioScript, heard: number, question: string, language: Language) {
+  const documents = await sourceDocuments(db, sources, false)
+  const transcript = script.turns
+    .slice(0, heard + 1)
+    .map((t) => `${HOSTS[t.speaker]}: ${t.text}`)
+    .join("\n")
+  const message = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 2000,
+    output_config: { effort: "low", format: zodOutputFormat(replySchema) },
+    system: GROUNDING,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...documents,
+          {
+            type: "text",
+            text: [
+              `Du führst die Audio-Zusammenfassung „${script.title}“ fort. Bisher gesprochen:\n${transcript}`,
+              `Eine Person aus dem Publikum unterbricht und fragt: „${question}“`,
+              `Antworte als ${HOSTS.A} (A) und ${HOSTS.B} (B) in 2 bis 4 kurzen Beiträgen mit zusammen höchstens 600 Zeichen: Greift die Frage kurz auf, beantwortet sie präzise auf Basis der Quellen und leitet zurück zum Gespräch. Wenn die Quellen die Antwort nicht enthalten, sagt das ehrlich.`,
+              `Natürliche gesprochene Sprache, kein Markdown, höchstens ein Audio-Tag aus [laughs], [curious], [excited], [sighs]. Antworte auf ${language}.`,
+            ].join("\n\n"),
+          },
+        ],
+      },
+    ],
+  })
+  if (message.stop_reason === "refusal") throw new UserError("Die Anfrage wurde von der KI abgelehnt")
+  if (!message.parsed_output?.turns.length) throw new UserError("Die Antwort der KI war unvollständig")
+  return message.parsed_output.turns
+}

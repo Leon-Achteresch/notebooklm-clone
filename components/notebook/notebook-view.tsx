@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { motion } from "motion/react"
 import {
   ArrowLeftIcon,
@@ -15,9 +15,9 @@ import {
   UserPlusIcon,
   XIcon,
 } from "lucide-react"
-import { deleteNotebook, inviteMember, removeMember, updateNotebook } from "@/app/notebook/actions"
+import { deleteNotebook, duplicateNotebook, inviteMember, removeMember, updateNotebook } from "@/app/notebook/actions"
 import { Cover } from "@/components/notebook/brand"
-import { ChatPanel } from "@/components/notebook/chat-panel"
+import { ChatPanel, type ChatHandle } from "@/components/notebook/chat-panel"
 import { AddSourceDialog, SourceViewer, SourcesPanel, type SourceTarget } from "@/components/notebook/sources-panel"
 import { StudioPanel } from "@/components/notebook/studio-panel"
 import { useLiveNotes } from "@/components/notebook/use-live-notes"
@@ -80,7 +80,10 @@ export function NotebookView({
   const [viewing, setViewing] = useState<SourceTarget | null>(null)
   const [dialog, setDialog] = useState<"share" | "settings" | "add" | null>(null)
   const [collapsed, setCollapsed] = useState({ sources: false, studio: false })
+  const chat = useRef<ChatHandle>(null)
   const [, run] = useRun()
+  const [copying, runCopy] = useRun()
+  const duplicate = () => runCopy(() => duplicateNotebook(notebook.id))
   const router = useRouter()
   useLiveNotes(notebook.id, notes.some((n) => n.status === "pending"))
 
@@ -111,6 +114,11 @@ export function NotebookView({
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
         {role !== "owner" && <span className="label hidden sm:block">{role === "editor" ? "Bearbeiter" : "Nur lesen"}</span>}
+        {role === "viewer" && (
+          <Button variant="outline" className="rounded-full" disabled={copying} onClick={duplicate}>
+            <CopyIcon /> {copying ? "Wird kopiert …" : "Eigene Kopie"}
+          </Button>
+        )}
         {role === "owner" && (
           <Button variant="outline" className="rounded-full" onClick={() => setDialog("share")}>
             {notebook.is_public ? <GlobeIcon /> : <UserPlusIcon />} Teilen
@@ -123,6 +131,9 @@ export function NotebookView({
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem disabled={!canEdit} onClick={() => setDialog("settings")}>
               <SlidersHorizontalIcon /> Chat anpassen
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={copying} onClick={duplicate}>
+              <CopyIcon /> Duplizieren
             </DropdownMenuItem>
             {role === "owner" && (
               <>
@@ -192,6 +203,7 @@ export function NotebookView({
               const source = sources.find((s) => s.id === citation.source_id)
               if (source) setViewing({ source, citation })
             }}
+            ref={chat}
           />
         </motion.section>
         <motion.section {...enter(2)} className={panel("studio")} aria-label="Studio">
@@ -202,6 +214,10 @@ export function NotebookView({
             hasSources={sources.some((s) => s.selected)}
             collapsed={collapsed.studio}
             onToggle={() => toggle("studio")}
+            onAsk={(text) => {
+              chat.current?.ask(text)
+              setTab("chat")
+            }}
           />
         </motion.section>
       </main>

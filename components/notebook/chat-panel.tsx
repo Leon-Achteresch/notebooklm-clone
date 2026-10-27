@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useImperativeHandle, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import {
   ArrowRightIcon,
@@ -22,6 +22,8 @@ import { withCitationMarkers } from "@/lib/citations"
 import { SPRING_LAYOUT, SPRING_SWAP } from "@/lib/ease"
 import type { Citation, Message, Notebook, Source } from "@/lib/types"
 
+export type ChatHandle = { ask: (text: string) => void }
+
 export function ChatPanel({
   notebook,
   initialMessages,
@@ -29,6 +31,7 @@ export function ChatPanel({
   canEdit,
   onAddSource,
   onCite,
+  ref,
 }: {
   notebook: Notebook
   initialMessages: Message[]
@@ -36,6 +39,7 @@ export function ChatPanel({
   canEdit: boolean
   onAddSource: () => void
   onCite: (citation: Citation) => void
+  ref?: React.Ref<ChatHandle>
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState("")
@@ -115,6 +119,8 @@ export function ChatPanel({
       abortRef.current = null
     }
   }
+
+  useImperativeHandle(ref, () => ({ ask: (text: string) => void send(text) }))
 
   return (
     <>
