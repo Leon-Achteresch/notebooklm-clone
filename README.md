@@ -108,7 +108,7 @@ flowchart LR
 
 ## Deployment
 
-Das `Dockerfile` baut ein Next.js-Standalone-Image (Node 24, läuft als Nutzer `node` auf Port 3000). `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` werden beim Build eingebettet und müssen deshalb als Build-Argumente gesetzt sein. `CLAUDE_API_KEY` und `ELEVENLABS_API_KEY` werden erst zur Laufzeit gelesen. Die Live-Version läuft über Coolify.
+Das `Dockerfile` baut ein Next.js-Standalone-Image (Node 24, läuft als Nutzer `node` auf Port 3000). `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` werden beim Build eingebettet und müssen deshalb als Build-Argumente gesetzt sein. `CLAUDE_API_KEY` und `ELEVENLABS_API_KEY` werden erst zur Laufzeit gelesen. Das Image spielt keine Migrationen ein: Vor dem Start einer neuen Version müssen alle Dateien aus `supabase/migrations` in der Datenbank angewendet sein, zum Beispiel mit `supabase db push`. Die Live-Version läuft über Coolify.
 
 ```bash
 docker build -t folio --build-arg NEXT_PUBLIC_SUPABASE_URL=… --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=… .
@@ -119,6 +119,7 @@ docker run -p 3000:3000 --env-file .env.local folio
 
 - E-Mail-Bestätigung ist im Supabase-Projekt ausgeschaltet, damit Registrierung sofort funktioniert. Für einen echten Betrieb gehört sie wieder an, zusammen mit eigenem SMTP.
 - Anonyme Gastkonten werden nicht automatisch aufgeräumt.
+- Vor dem Gastzugang steht kein CAPTCHA. Supabase begrenzt anonyme Anmeldungen pro IP, und die globalen Tagesgrenzen deckeln die Kosten, falls trotzdem viele Gastkonten entstehen.
 - Die Wellenform wird im Browser aus der kompletten Datei berechnet. Bei sehr langen Podcasts wäre eine serverseitig vorberechnete Wellenform mit gestreamtem Audio schneller.
 
 ## Nächste Schritte

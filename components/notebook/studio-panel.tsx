@@ -482,9 +482,9 @@ function NoteBody({ note, onAsk }: { note: Note; onAsk: (question: string) => vo
     }
     case "audio": {
       const data = parseStudioData("audio", note.data)
+      if (!data) return unreadable
       const extra = note.data as { language?: Language; audio?: unknown }
       const track = audioTrackSchema.safeParse(extra.audio)
-      if (!data) return unreadable
       return track.success ? (
         <AudioPlayer
           notebookId={note.notebook_id}

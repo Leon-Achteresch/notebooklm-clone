@@ -223,11 +223,11 @@ export function AudioPlayer({
     const ticket = ++pending.current
     setStage("thinking")
     const heard = Math.max(at.turn, 0)
-    const result = await askHosts(notebookId, noteId, question, heard)
+    const result = await askHosts(notebookId, noteId, question, heard).catch(() => null)
     const current = ticket === pending.current
-    if (!result.turns) {
+    if (!result?.turns) {
       if (!current) return
-      toast.add({ title: result.error ?? "Etwas ist schiefgelaufen", type: "error" })
+      toast.add({ title: result?.error ?? "Etwas ist schiefgelaufen", type: "error" })
       setStage("compose")
       return
     }

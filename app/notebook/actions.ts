@@ -63,6 +63,24 @@ async function uploadPdf(db: Db, notebookId: string, body: Blob | Buffer) {
   return path
 }
 
+async function settled<T>(tasks: Promise<T>[]) {
+  return (await Promise.allSettled(tasks)).map((r) => {
+    if (r.status === "rejected") throw r.reason
+    return r.value
+  })
+}
+
+async function purge(db: Db, notebookId: string) {
+  await Promise.all(
+    (["sources", "studio"] as const).map(async (bucket) => {
+      const { data } = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
+      const names = data?.map((f) => `${notebookId}/${f.name}`) ?? []
+      if (names.length) await db.storage.from(bucket).remove(names)
+    })
+  )
+  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
+}
+
 export async function createNotebook() {
   const db = await createClient()
   const notebook = must(await db.from("notebooks").insert({}).select("id").single())
@@ -72,24 +90,19 @@ export async function createNotebook() {
 export const deleteNotebook = action([id], async (notebookId) => {
   const db = await createClient()
   if (must(await db.rpc("notebook_role", { nid: notebookId })) !== "owner") throw new UserError("Dafür fehlen dir die Rechte")
-  await Promise.all(
-    (["sources", "studio"] as const).map(async (bucket) => {
-      const { data } = await db.storage.from(bucket).list(notebookId, { limit: 10000 })
-      const names = data?.map((f) => `${notebookId}/${f.name}`) ?? []
-      if (names.length) await db.storage.from(bucket).remove(names)
-    })
-  )
-  must(await db.from("notebooks").delete().eq("id", notebookId).select("id").single())
+  await purge(db, notebookId)
   revalidatePath("/")
 })
 
 export const duplicateNotebook = action([id], async (notebookId) => {
   const db = await createClient()
   const original = must(await db.from("notebooks").select("title, instructions, guide").eq("id", notebookId).single())
-  const [sources, notes] = await Promise.all([
+  const [sourcesResult, notesResult] = await Promise.all([
     db.from("sources").select("*").eq("notebook_id", notebookId).order("created_at"),
     db.from("notes").select("*").eq("notebook_id", notebookId).eq("status", "ready").order("created_at"),
   ])
+  const sources = must(sourcesResult)
+  const notes = must(notesResult)
   const copy = must(
     await db
       .from("notebooks")
@@ -97,36 +110,41 @@ export const duplicateNotebook = action([id], async (notebookId) => {
       .select("id")
       .single()
   )
-  const copyFile = async (bucket: "sources" | "studio", from: string, to: string) => {
-    const { error } = await db.storage.from(bucket).copy(from, to)
-    if (error) throw error
-    return to
+  try {
+    const copyFile = async (bucket: "sources" | "studio", from: string, to: string) => {
+      const { error } = await db.storage.from(bucket).copy(from, to)
+      if (error) throw error
+      return to
+    }
+    const sourceRows = await settled(
+      sources.map(async (s) => ({
+        notebook_id: copy.id,
+        kind: s.kind,
+        title: s.title,
+        content: s.content,
+        url: s.url,
+        selected: s.selected,
+        summary: s.summary,
+        storage_path: s.storage_path && (await copyFile("sources", s.storage_path, `${copy.id}/${randomUUID()}.pdf`)),
+      }))
+    )
+    const noteRows = await settled(
+      notes.map(async (n) => {
+        const noteId = randomUUID()
+        const track = audioTrackSchema.safeParse((n.data as { audio?: unknown } | null)?.audio)
+        const data = track.success
+          ? { ...(n.data as object), audio: { ...track.data, path: await copyFile("studio", track.data.path, `${copy.id}/${noteId}.mp3`) } }
+          : n.data
+        return { id: noteId, notebook_id: copy.id, kind: n.kind, title: n.title, content: n.content, data, status: n.status, created_at: n.created_at }
+      })
+    )
+    if (sourceRows.length) must(await db.from("sources").insert(sourceRows))
+    if (noteRows.length) must(await db.from("notes").insert(noteRows))
+    if (original.guide) must(await db.from("notebooks").update({ guide: original.guide }).eq("id", copy.id))
+  } catch (e) {
+    await purge(db, copy.id).catch(() => {})
+    throw e
   }
-  const sourceRows = await Promise.all(
-    must(sources).map(async (s) => ({
-      notebook_id: copy.id,
-      kind: s.kind,
-      title: s.title,
-      content: s.content,
-      url: s.url,
-      selected: s.selected,
-      summary: s.summary,
-      storage_path: s.storage_path && (await copyFile("sources", s.storage_path, `${copy.id}/${randomUUID()}.pdf`)),
-    }))
-  )
-  const noteRows = await Promise.all(
-    must(notes).map(async (n) => {
-      const noteId = randomUUID()
-      const track = audioTrackSchema.safeParse((n.data as { audio?: unknown } | null)?.audio)
-      const data = track.success
-        ? { ...(n.data as object), audio: { ...track.data, path: await copyFile("studio", track.data.path, `${copy.id}/${noteId}.mp3`) } }
-        : n.data
-      return { id: noteId, notebook_id: copy.id, kind: n.kind, title: n.title, content: n.content, data, status: n.status, created_at: n.created_at }
-    })
-  )
-  if (sourceRows.length) must(await db.from("sources").insert(sourceRows))
-  if (noteRows.length) must(await db.from("notes").insert(noteRows))
-  if (original.guide) must(await db.from("notebooks").update({ guide: original.guide }).eq("id", copy.id))
   revalidatePath("/")
   redirect(`/notebook/${copy.id}`)
 })
