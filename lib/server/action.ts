@@ -1,12 +1,17 @@
 import "server-only"
 import Anthropic from "@anthropic-ai/sdk"
 import type { PostgrestError } from "@supabase/supabase-js"
+import { headers } from "next/headers"
 import { unstable_rethrow } from "next/navigation"
 import { z } from "zod"
 
 z.config(z.locales.de())
 
 export class UserError extends Error {}
+
+export async function clientIp() {
+  return (await headers()).get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown"
+}
 
 export type ActionResult<T extends object = object> =
   | (T & { error?: undefined })

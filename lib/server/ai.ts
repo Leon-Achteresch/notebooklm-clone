@@ -2,7 +2,8 @@ import "server-only"
 import Anthropic from "@anthropic-ai/sdk"
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod"
 import { z } from "zod"
-import { must, UserError } from "@/lib/server/action"
+import { throttle } from "@/lib/rate-limit"
+import { clientIp, must, UserError } from "@/lib/server/action"
 import type { Json } from "@/lib/database.types"
 import type { Db } from "@/lib/supabase/server"
 import { AUDIO_FORMATS, HOSTS, REPORTS, studioSchemas, type AudioScript, type Language, type StudioRequest } from "@/lib/studio"
@@ -12,11 +13,21 @@ export const anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY })
 
 export const MODEL = "claude-haiku-5-5"
 
+const MAX_INPUT_TOKENS = 200_000
+
 const GROUNDING =
   "Du arbeitest ausschließlich mit den bereitgestellten Quellen des Notebooks. Erfinde keine Fakten, die nicht in den Quellen stehen."
 
 export async function chargeQuota(db: Db) {
+  const [ip, { data }] = await Promise.all([clientIp(), db.auth.getClaims()])
+  const wait = throttle(["ai", data?.claims.sub ?? ip], ["aiIp", ip], ["aiIpDay", ip])
+  if (wait) throw new UserError(wait)
   must(await db.rpc("consume_ai_quota"))
+}
+
+export async function bounded(system: string, messages: Anthropic.MessageParam[]) {
+  const { input_tokens } = await anthropic.messages.countTokens({ model: MODEL, system, messages })
+  if (input_tokens > MAX_INPUT_TOKENS) throw new UserError("Die ausgewählten Quellen sind zu umfangreich. Wähle weniger Quellen aus.")
 }
 
 export async function sourceDocuments(db: Db, sources: Source[], citations: boolean) {
@@ -46,7 +57,7 @@ export async function fetchUrl(url: string) {
     model: MODEL,
     max_tokens: 2000,
     output_config: { effort: "low" },
-    tools: [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: 1 }],
+    tools: [{ type: "web_fetch_20250910", name: "web_fetch", max_uses: 1, max_content_tokens: 50_000 }],
     messages: [{ role: "user", content: `Rufe ${url} mit dem Tool web_fetch ab und antworte danach nur mit OK.` }],
   })
   for (const block of message.content) {
@@ -133,6 +144,7 @@ export async function generateStudio(
     system: GROUNDING,
     messages: [{ role: "user" as const, content: [...documents, { type: "text" as const, text: studioTask(req) }] }],
   }
+  await bounded(base.system, base.messages)
 
   if (req.kind === "report") {
     const content = text(await anthropic.messages.create({ ...base, output_config: { effort: "medium" } }))
@@ -157,23 +169,25 @@ const guideSchema = z.object({
 
 export async function generateGuide(db: Db, sources: Source[]): Promise<Guide> {
   const documents = await sourceDocuments(db, sources, false)
+  const messages: Anthropic.MessageParam[] = [
+    {
+      role: "user",
+      content: [
+        ...documents,
+        {
+          type: "text",
+          text: "Erstelle einen Überblick über alle Quellen: summary ist eine prägnante Zusammenfassung in 2 bis 3 Sätzen, topics sind 3 bis 6 zentrale Themen als kurze Stichworte, questions sind 3 kluge, konkrete Fragen, die man den Quellen stellen könnte. Schreibe in der Sprache der Quellen.",
+        },
+      ],
+    },
+  ]
+  await bounded(GROUNDING, messages)
   const message = await anthropic.messages.parse({
     model: MODEL,
     max_tokens: 4000,
     output_config: { effort: "low", format: zodOutputFormat(guideSchema) },
     system: GROUNDING,
-    messages: [
-      {
-        role: "user",
-        content: [
-          ...documents,
-          {
-            type: "text",
-            text: "Erstelle einen Überblick über alle Quellen: summary ist eine prägnante Zusammenfassung in 2 bis 3 Sätzen, topics sind 3 bis 6 zentrale Themen als kurze Stichworte, questions sind 3 kluge, konkrete Fragen, die man den Quellen stellen könnte. Schreibe in der Sprache der Quellen.",
-          },
-        ],
-      },
-    ],
+    messages,
   })
   if (!message.parsed_output) throw new UserError("Überblick konnte nicht erstellt werden")
   return message.parsed_output
@@ -181,26 +195,20 @@ export async function generateGuide(db: Db, sources: Source[]): Promise<Guide> {
 
 export async function summarizeSource(db: Db, source: Source) {
   const [document] = await sourceDocuments(db, [source], false)
-  return text(
-    await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 2000,
-      output_config: { effort: "low" },
-      system: GROUNDING,
-      messages: [
+  const messages: Anthropic.MessageParam[] = [
+    {
+      role: "user",
+      content: [
+        document,
         {
-          role: "user",
-          content: [
-            document,
-            {
-              type: "text",
-              text: "Fasse diese Quelle in 3 bis 4 Sätzen zusammen und hebe die wichtigsten Begriffe **fett** hervor. Nur der Fließtext, keine Überschrift. Schreibe in der Sprache der Quelle.",
-            },
-          ],
+          type: "text",
+          text: "Fasse diese Quelle in 3 bis 4 Sätzen zusammen und hebe die wichtigsten Begriffe **fett** hervor. Nur der Fließtext, keine Überschrift. Schreibe in der Sprache der Quelle.",
         },
       ],
-    })
-  )
+    },
+  ]
+  await bounded(GROUNDING, messages)
+  return text(await anthropic.messages.create({ model: MODEL, max_tokens: 2000, output_config: { effort: "low" }, system: GROUNDING, messages }))
 }
 
 export const CHAT_SYSTEM = [
@@ -216,28 +224,30 @@ export async function answerListener(db: Db, sources: Source[], script: AudioScr
     .slice(0, heard + 1)
     .map((t) => `${HOSTS[t.speaker]}: ${t.text}`)
     .join("\n")
+  const messages: Anthropic.MessageParam[] = [
+    {
+      role: "user",
+      content: [
+        ...documents,
+        {
+          type: "text",
+          text: [
+            `Du führst die Audio-Zusammenfassung „${script.title}“ fort. Bisher gesprochen:\n${transcript}`,
+            `Eine Person aus dem Publikum unterbricht und fragt: „${question}“`,
+            `Antworte als ${HOSTS.A} (A) und ${HOSTS.B} (B) in 2 bis 4 kurzen Beiträgen mit zusammen höchstens 600 Zeichen: Greift die Frage kurz auf, beantwortet sie präzise auf Basis der Quellen und leitet zurück zum Gespräch. Wenn die Quellen die Antwort nicht enthalten, sagt das ehrlich.`,
+            `Natürliche gesprochene Sprache, kein Markdown, höchstens ein Audio-Tag aus [laughs], [curious], [excited], [sighs]. Antworte auf ${language}.`,
+          ].join("\n\n"),
+        },
+      ],
+    },
+  ]
+  await bounded(GROUNDING, messages)
   const message = await anthropic.messages.parse({
     model: MODEL,
     max_tokens: 2000,
     output_config: { effort: "low", format: zodOutputFormat(replySchema) },
     system: GROUNDING,
-    messages: [
-      {
-        role: "user",
-        content: [
-          ...documents,
-          {
-            type: "text",
-            text: [
-              `Du führst die Audio-Zusammenfassung „${script.title}“ fort. Bisher gesprochen:\n${transcript}`,
-              `Eine Person aus dem Publikum unterbricht und fragt: „${question}“`,
-              `Antworte als ${HOSTS.A} (A) und ${HOSTS.B} (B) in 2 bis 4 kurzen Beiträgen mit zusammen höchstens 600 Zeichen: Greift die Frage kurz auf, beantwortet sie präzise auf Basis der Quellen und leitet zurück zum Gespräch. Wenn die Quellen die Antwort nicht enthalten, sagt das ehrlich.`,
-              `Natürliche gesprochene Sprache, kein Markdown, höchstens ein Audio-Tag aus [laughs], [curious], [excited], [sighs]. Antworte auf ${language}.`,
-            ].join("\n\n"),
-          },
-        ],
-      },
-    ],
+    messages,
   })
   if (message.stop_reason === "refusal") throw new UserError("Die Anfrage wurde von der KI abgelehnt")
   if (!message.parsed_output?.turns.length) throw new UserError("Die Antwort der KI war unvollständig")

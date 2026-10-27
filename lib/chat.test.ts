@@ -69,6 +69,22 @@ test("history is chronological, starts with the user and skips empty turns", () 
   )
 })
 
+test("history keeps only the newest turns that fit the character budget", () => {
+  const history = toHistory(
+    [
+      { role: "assistant", content: "A2" },
+      { role: "user", content: "U2" },
+      { role: "assistant", content: "A1 mit einer sehr langen Antwort" },
+      { role: "user", content: "U1" },
+    ],
+    4
+  )
+  assert.deepEqual(
+    history.map((m) => m.content),
+    ["U2", "A2"]
+  )
+})
+
 test("reads events split across arbitrary chunk boundaries", async () => {
   const sent: ChatEvent[] = [{ type: "text", text: "Hallo „Welt“ 🐝" }, { type: "done" }]
   const bytes = new TextEncoder().encode(sent.map(encodeEvent).join(""))

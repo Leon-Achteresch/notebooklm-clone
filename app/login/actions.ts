@@ -2,6 +2,8 @@
 
 import type { AuthError } from "@supabase/supabase-js"
 import { redirect } from "next/navigation"
+import { throttle, type Rule } from "@/lib/rate-limit"
+import { clientIp } from "@/lib/server/action"
 import { createClient } from "@/lib/supabase/server"
 
 const MESSAGES: Record<string, string> = {
@@ -17,6 +19,11 @@ function fail(error: AuthError): never {
   redirect(`/login?error=${encodeURIComponent(MESSAGES[error.code ?? ""] ?? error.message)}`)
 }
 
+async function throttled(rule: Rule) {
+  const wait = throttle([rule, await clientIp()])
+  if (wait) redirect(`/login?error=${encodeURIComponent(wait)}`)
+}
+
 function credentials(formData: FormData) {
   return {
     email: String(formData.get("email") ?? "").trim(),
@@ -25,6 +32,7 @@ function credentials(formData: FormData) {
 }
 
 export async function login(formData: FormData) {
+  await throttled("login")
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword(credentials(formData))
   if (error) fail(error)
@@ -32,6 +40,7 @@ export async function login(formData: FormData) {
 }
 
 export async function signup(formData: FormData) {
+  await throttled("login")
   const supabase = await createClient()
   const { data, error } = await supabase.auth.signUp(credentials(formData))
   if (error) fail(error)
@@ -41,6 +50,7 @@ export async function signup(formData: FormData) {
 }
 
 export async function guest() {
+  await throttled("guest")
   const supabase = await createClient()
   const { error } = await supabase.auth.signInAnonymously()
   if (error) fail(error)

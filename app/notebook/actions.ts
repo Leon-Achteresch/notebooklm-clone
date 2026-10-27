@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { after } from "next/server"
 import { z } from "zod"
-import { action, must, UserError, userMessage } from "@/lib/server/action"
+import { throttle } from "@/lib/rate-limit"
+import { action, clientIp, must, UserError, userMessage } from "@/lib/server/action"
 import {
   answerListener,
   chargeQuota,
@@ -46,6 +47,11 @@ async function editor(notebookId: string) {
 
 function refresh(notebookId: string) {
   revalidatePath(`/notebook/${notebookId}`)
+}
+
+async function limitUploads() {
+  const wait = throttle(["upload", await clientIp()])
+  if (wait) throw new UserError(wait)
 }
 
 async function selectedSources(db: Db, notebookId: string) {
@@ -98,6 +104,7 @@ export const deleteNotebook = action([id], async (notebookId) => {
 })
 
 export const duplicateNotebook = action([id], async (notebookId) => {
+  await limitUploads()
   const db = await createClient()
   const original = must(await db.from("notebooks").select("title, instructions, guide").eq("id", notebookId).single())
   const [sourcesResult, notesResult] = await Promise.all([
@@ -175,6 +182,7 @@ export const removeMember = action([id, id], async (notebookId, userId) => {
 })
 
 export const addTextSource = action([id, title, text], async (notebookId, name, content) => {
+  await limitUploads()
   const db = await editor(notebookId)
   must(await db.from("sources").insert({ notebook_id: notebookId, kind: "text", title: name || content.slice(0, 60), content }))
   refresh(notebookId)
@@ -183,6 +191,7 @@ export const addTextSource = action([id, title, text], async (notebookId, name, 
 export const addFileSource = action([id, z.instanceof(FormData)], async (notebookId, form) => {
   const file = form.get("file")
   if (!(file instanceof File) || file.size === 0) throw new UserError("Keine Datei ausgewählt")
+  await limitUploads()
   const name = file.name.replace(/\.[^.]+$/, "")
   const db = await editor(notebookId)
 
