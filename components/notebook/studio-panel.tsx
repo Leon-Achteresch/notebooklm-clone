@@ -404,7 +404,7 @@ function stageLabel(note: Note) {
 }
 
 function NoteRow({ note, canEdit, onOpen, onRetry }: { note: Note; canEdit: boolean; onOpen: () => void; onRetry: () => void }) {
-  const date = new Date(note.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "short" })
+  const date = new Date(note.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "short", timeZone: "Europe/Berlin" })
 
   if (note.status === "pending")
     return (

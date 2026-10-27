@@ -199,6 +199,7 @@ function NotebookCard({ notebook }: { notebook: Row }) {
   const date = new Date(notebook.created_at).toLocaleDateString("de-DE", {
     day: "numeric",
     month: "short",
+    timeZone: "Europe/Berlin",
   })
   return (
     <Link
