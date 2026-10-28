@@ -356,6 +356,7 @@ export type Database = {
         | "audio"
         | "slides"
         | "table"
+        | "story"
       source_kind: "text" | "url" | "pdf"
     }
     CompositeTypes: {
@@ -496,6 +497,7 @@ export const Constants = {
         "audio",
         "slides",
         "table",
+        "story",
       ],
       source_kind: ["text", "url", "pdf"],
     },

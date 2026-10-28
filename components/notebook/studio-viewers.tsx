@@ -310,7 +310,7 @@ export function QuizView({ data }: { data: Quiz }) {
 
 const RATES = [1, 1.25, 1.5]
 
-export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; language?: Language }) {
+export function AudioView({ data, language = "Deutsch", narrator }: { data: AudioScript; language?: Language; narrator?: string }) {
   const [current, setCurrent] = useState(-1)
   const [state, setState] = useState<"idle" | "playing" | "paused">("idle")
   const [rate, setRate] = useState(1)
@@ -387,7 +387,7 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
           </motion.button>
           <div className="min-w-0 flex-1">
             <p className="font-mono text-[10.5px] tracking-widest text-neutral-900/60 uppercase">
-              {HOSTS.A} & {HOSTS.B} · Browser-Stimmen
+              {narrator ?? `${HOSTS.A} & ${HOSTS.B}`} · Browser-Stimmen
             </p>
             <div className="mt-3 flex h-12 items-center gap-[3px]" aria-hidden>
               {bars.map((h, i) => (
@@ -438,9 +438,11 @@ export function AudioView({ data, language = "Deutsch" }: { data: AudioScript; l
           </div>
         </div>
       </Cover>
-      <p className="-mt-3 px-1 text-xs text-muted-foreground">
-        Für diese Folge standen keine KI-Stimmen zur Verfügung, deshalb liest dein Browser das Skript vor.
-      </p>
+      {!narrator && (
+        <p className="-mt-3 px-1 text-xs text-muted-foreground">
+          Für diese Folge standen keine KI-Stimmen zur Verfügung, deshalb liest dein Browser das Skript vor.
+        </p>
+      )}
 
       <ol ref={listRef} className="flex flex-col gap-1">
         {data.turns.map((turn, i) => (

@@ -99,12 +99,14 @@ export function AudioPlayer({
   script,
   track,
   language,
+  narrator,
 }: {
   notebookId: string
   noteId: string
   script: AudioScript
   track: AudioTrack
   language: Language
+  narrator?: string
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const reply = useRef<HTMLAudioElement | null>(null)
@@ -304,9 +306,7 @@ export function AudioPlayer({
           </motion.button>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3 font-mono text-[10.5px] tracking-widest text-neutral-900/60 uppercase">
-              <span className="truncate">
-                {HOSTS.A} & {HOSTS.B}
-              </span>
+              <span className="truncate">{narrator ?? `${HOSTS.A} & ${HOSTS.B}`}</span>
               <Elapsed time={time} duration={track.duration} />
             </div>
             <Waveform bars={bars} duration={track.duration} time={time} onSeek={seek} />
@@ -347,16 +347,18 @@ export function AudioPlayer({
               <DownloadIcon className="size-4" />
             </a>
           )}
-          <motion.button
-            onClick={raiseHand}
-            disabled={!src || stage === "thinking"}
-            whileTap={{ scale: 0.95 }}
-            transition={SPRING_PRESS}
-            className="ml-auto flex items-center gap-2 rounded-full bg-white/75 px-3.5 py-1.5 text-sm font-medium shadow-sm backdrop-blur transition-colors hover:bg-white disabled:opacity-60"
-          >
-            <HandIcon className="size-4" />
-            Mitreden
-          </motion.button>
+          {!narrator && (
+            <motion.button
+              onClick={raiseHand}
+              disabled={!src || stage === "thinking"}
+              whileTap={{ scale: 0.95 }}
+              transition={SPRING_PRESS}
+              className="ml-auto flex items-center gap-2 rounded-full bg-white/75 px-3.5 py-1.5 text-sm font-medium shadow-sm backdrop-blur transition-colors hover:bg-white disabled:opacity-60"
+            >
+              <HandIcon className="size-4" />
+              Mitreden
+            </motion.button>
+          )}
         </div>
       </Cover>
 
