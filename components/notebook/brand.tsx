@@ -1,10 +1,26 @@
 import { cn } from "@/lib/utils"
 
+const MARK =
+  "M-22 0Q-36 0 -36 10Q-36 21 -16 24L4 27Q26 30 34.5 37.5Q43 45 47 66L183 654Q188 675 183 682Q178 689 158 693L138 697Q125 700 125 708Q125 720 143 720H465Q490 720 485 697L455 531Q452 514 439 514Q425 514 427 527L429 562Q434 631 407 663Q380 695 338 695Q295 695 275 681Q255 667 248 638L194 402Q191 388 205 388H242Q285 388 306 435L329 484Q332 490 335 493.5Q338 497 344 497Q349 497 353 492.5Q357 488 355 480L303 257Q298 240 287 240Q275 240 275 253V301Q275 336 266 347Q257 358 234 358H198Q183 358 180 344L116 71Q111 50 116 41.5Q121 33 141 30L194 23Q206 22 206 12Q206 0 189 0Z"
+
+function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 512 512" aria-hidden className={cn("size-8 shrink-0", className)}>
+      <rect width="512" height="512" rx="116" fill="#14171d" />
+      <path transform="translate(150 424) scale(.46 -.46)" d={MARK} fill="#faf9f7" />
+      <circle cx="292" cy="398" r="27" fill="#e95f22" />
+    </svg>
+  )
+}
+
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-baseline gap-0.5 font-serif text-2xl tracking-tight italic", className)}>
-      Folio
-      <span className="size-1.5 rounded-full bg-signal" />
+    <span className={cn("inline-flex items-center gap-2.5 font-serif text-2xl tracking-tight italic", className)}>
+      <LogoMark className="size-[1.15em]" />
+      <span className="inline-flex items-baseline gap-0.5">
+        Folio
+        <span className="size-1.5 rounded-full bg-signal" />
+      </span>
     </span>
   )
 }
