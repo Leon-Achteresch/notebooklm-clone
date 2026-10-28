@@ -19,9 +19,16 @@ export const audioTrackSchema = z.object({
 
 export type AudioTrack = z.infer<typeof audioTrackSchema>
 
-const episodeTracksSchema = z.record(z.string(), audioTrackSchema).catch({})
-
-export const episodeTracks = (data: unknown) => episodeTracksSchema.parse((data as { tracks?: unknown } | null)?.tracks)
+export function episodeTracks(data: unknown): Record<string, AudioTrack> {
+  const tracks = (data as { tracks?: unknown } | null)?.tracks
+  if (!tracks || typeof tracks !== "object") return {}
+  return Object.fromEntries(
+    Object.entries(tracks).flatMap(([episode, track]) => {
+      const parsed = audioTrackSchema.safeParse(track)
+      return parsed.success ? [[episode, parsed.data]] : []
+    })
+  )
+}
 export type TimedTurn = AudioTrack["turns"][number]
 
 export type Alignment = {

@@ -33,7 +33,8 @@ export function StoryView({
   const [index, setIndex] = useState(0)
   const [pending, run] = useRun()
   const tracks = episodeTracks(data)
-  const episode = story.episodes[index]
+  const episodes = story.episodes.slice(0, STORY.episodes)
+  const episode = episodes[index]
   const track = tracks[index]
   if (!episode) return null
   const script = { title: episode.title, turns: episode.turns }
@@ -42,7 +43,7 @@ export function StoryView({
     <div className="flex flex-col gap-5">
       <p className="font-serif text-lg leading-snug text-balance text-muted-foreground">{story.synopsis}</p>
       <div role="tablist" aria-label="Folgen" className="grid gap-1.5 sm:grid-cols-3">
-        {story.episodes.map((e, i) => (
+        {episodes.map((e, i) => (
           <button
             key={i}
             role="tab"

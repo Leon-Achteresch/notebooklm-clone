@@ -83,6 +83,6 @@ test("locate finds the active turn and the last started word", () => {
 test("episodeTracks keeps voiced episodes and ignores broken data", () => {
   const track = { path: "n/x-1.mp3", duration: 3, model: "eleven_v4_turbo", turns: [] }
   assert.deepEqual(episodeTracks({ tracks: { 1: track } }), { 1: track })
-  assert.deepEqual(episodeTracks({ tracks: { 0: { path: 1 } } }), {})
+  assert.deepEqual(episodeTracks({ tracks: { 0: { path: 1 }, 1: track } }), { 1: track })
   assert.deepEqual(episodeTracks(null), {})
 })

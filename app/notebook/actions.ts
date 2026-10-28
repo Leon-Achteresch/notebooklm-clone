@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { after } from "next/server"
 import { z } from "zod"
+import { oneAtATime } from "@/lib/one-at-a-time"
 import { throttle } from "@/lib/rate-limit"
 import { action, clientIp, must, UserError, userMessage } from "@/lib/server/action"
 import {
@@ -372,16 +373,18 @@ export const retryNote = action([id, id], async (notebookId, noteId) => {
 
 export const voiceEpisode = action([id, id, z.number().int().min(0).max(STORY.episodes - 1)], async (notebookId, noteId, episode) => {
   const db = await editor(notebookId)
-  const select = () => db.from("notes").select("data").eq("id", noteId).eq("notebook_id", notebookId).single()
-  const note = must(await select())
-  const turns = parseStudioData("story", note.data)?.episodes[episode]?.turns
-  if (!turns) throw new UserError("Diese Folge gibt es nicht")
-  if (episodeTracks(note.data)[episode]) return
-  if (!(await claimTts(db, notebookId, turns, PODCAST_MODEL)))
-    throw new UserError("Die KI-Stimmen sind gerade aufgebraucht. Dein Browser kann die Folge trotzdem vorlesen.")
-  const track = await record(db, `${notebookId}/${noteId}-${episode}.mp3`, turns, storedLanguage(note.data))
-  const latest = must(await select()).data
-  must(await db.from("notes").update({ data: { ...(latest as object), tracks: { ...episodeTracks(latest), [episode]: track } } }).eq("id", noteId))
+  await oneAtATime(noteId, async () => {
+    const select = () => db.from("notes").select("data").eq("id", noteId).eq("notebook_id", notebookId).single()
+    const note = must(await select())
+    const turns = parseStudioData("story", note.data)?.episodes[episode]?.turns
+    if (!turns) throw new UserError("Diese Folge gibt es nicht")
+    if (episodeTracks(note.data)[episode]) return
+    if (!(await claimTts(db, notebookId, turns, PODCAST_MODEL)))
+      throw new UserError("Die KI-Stimmen sind gerade aufgebraucht. Dein Browser kann die Folge trotzdem vorlesen.")
+    const track = await record(db, `${notebookId}/${noteId}-${episode}.mp3`, turns, storedLanguage(note.data))
+    const latest = must(await select()).data
+    must(await db.from("notes").update({ data: { ...(latest as object), tracks: { ...episodeTracks(latest), [episode]: track } } }).eq("id", noteId))
+  })
   refresh(notebookId)
 })
 

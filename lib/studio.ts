@@ -101,12 +101,14 @@ export const studioSchemas = {
   story: z.object({
     title: z.string(),
     synopsis: z.string(),
-    episodes: z.array(
-      z.object({
-        title: z.string(),
-        turns: z.array(z.object({ speaker: z.literal(STORY.narrator), text: z.string() })),
-      })
-    ),
+    episodes: z
+      .array(
+        z.object({
+          title: z.string(),
+          turns: z.array(z.object({ speaker: z.literal(STORY.narrator), text: z.string() })).min(1),
+        })
+      )
+      .min(1),
   }),
   slides: z.object({
     title: z.string(),
