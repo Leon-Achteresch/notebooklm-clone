@@ -16,12 +16,13 @@ import {
   generateStudio,
   summarizeSource,
 } from "@/lib/server/ai"
-import { audioTrackSchema, speakable, type AudioTrack } from "@/lib/audio"
+import { audioTrackSchema, episodeTracks, speakable, type AudioTrack } from "@/lib/audio"
 import { claimTts, PODCAST_MODEL, synthesize } from "@/lib/server/tts"
 import {
   HOSTS,
   LANGUAGES,
   parseStudioData,
+  STORY,
   studioLabel,
   studioRequestSchema,
   type AudioScript,
@@ -37,6 +38,11 @@ const MAX_PDF = 30 * 1024 * 1024
 const id = z.uuid()
 const title = z.string().trim().max(300)
 const text = z.string().trim().min(1, "Der Text ist leer").max(MAX_TEXT, "Der Text ist zu lang")
+
+function storedLanguage(data: unknown): Language {
+  const stored = (data as { language?: string } | null)?.language
+  return stored && stored in LANGUAGES ? (stored as Language) : "Deutsch"
+}
 
 async function editor(notebookId: string) {
   const db = await createClient()
@@ -141,10 +147,16 @@ export const duplicateNotebook = action([id], async (notebookId) => {
     const noteRows = await settled(
       notes.map(async (n) => {
         const noteId = randomUUID()
+        const copyTrack = async (t: AudioTrack, name: string) => ({ ...t, path: await copyFile("studio", t.path, `${copy.id}/${name}.mp3`) })
         const track = audioTrackSchema.safeParse((n.data as { audio?: unknown } | null)?.audio)
-        const data = track.success
-          ? { ...(n.data as object), audio: { ...track.data, path: await copyFile("studio", track.data.path, `${copy.id}/${noteId}.mp3`) } }
-          : n.data
+        const tracks = Object.entries(episodeTracks(n.data))
+        let data = n.data
+        if (track.success) data = { ...(data as object), audio: await copyTrack(track.data, noteId) }
+        if (tracks.length)
+          data = {
+            ...(data as object),
+            tracks: Object.fromEntries(await Promise.all(tracks.map(async ([k, t]) => [k, await copyTrack(t, `${noteId}-${k}`)]))),
+          }
         return { id: noteId, notebook_id: copy.id, kind: n.kind, title: n.title, content: n.content, data, status: n.status, created_at: n.created_at }
       })
     )
@@ -274,7 +286,9 @@ export const saveNote = action(
 export const deleteNote = action([id, id], async (notebookId, noteId) => {
   const db = await editor(notebookId)
   must(await db.from("notes").delete().eq("id", noteId).eq("notebook_id", notebookId))
-  await db.storage.from("studio").remove([`${notebookId}/${noteId}.mp3`])
+  await db.storage
+    .from("studio")
+    .remove([noteId, ...Array.from({ length: STORY.episodes }, (_, i) => `${noteId}-${i}`)].map((name) => `${notebookId}/${name}.mp3`))
   refresh(notebookId)
 })
 
@@ -282,22 +296,30 @@ export const noteToSource = action([id, id], async (notebookId, noteId) => {
   const db = await editor(notebookId)
   const note = must(await db.from("notes").select("title, content, data").eq("id", noteId).eq("notebook_id", notebookId).single())
   const script = parseStudioData("audio", note.data)
+  const story = parseStudioData("story", note.data)
   const content =
     note.content ||
-    (script ? script.turns.map((t) => `${HOSTS[t.speaker]}: ${speakable(t.text)}`).join("\n\n") : JSON.stringify(note.data, null, 2))
+    (script
+      ? script.turns.map((t) => `${HOSTS[t.speaker]}: ${speakable(t.text)}`).join("\n\n")
+      : story
+        ? story.episodes.map((e) => [`## ${e.title}`, ...e.turns.map((t) => t.text)].join("\n\n")).join("\n\n")
+        : JSON.stringify(note.data, null, 2))
   must(await db.from("sources").insert({ notebook_id: notebookId, kind: "text", title: note.title, content }))
   refresh(notebookId)
 })
 
+async function record(db: Db, path: string, script: AudioScript["turns"], language: Language) {
+  const { audio, duration, turns } = await synthesize(script, language, PODCAST_MODEL)
+  await db.storage.from("studio").remove([path])
+  const { error } = await db.storage.from("studio").upload(path, audio, { contentType: "audio/mpeg" })
+  if (error) throw error
+  return { path, duration, model: PODCAST_MODEL, turns } satisfies AudioTrack
+}
+
 async function voiceover(db: Db, notebookId: string, noteId: string, script: AudioScript, language: Language) {
   try {
     if (!(await claimTts(db, notebookId, script.turns, PODCAST_MODEL))) return null
-    const { audio, duration, turns } = await synthesize(script.turns, language, PODCAST_MODEL)
-    const path = `${notebookId}/${noteId}.mp3`
-    await db.storage.from("studio").remove([path])
-    const { error } = await db.storage.from("studio").upload(path, audio, { contentType: "audio/mpeg" })
-    if (error) throw error
-    return { path, duration, model: PODCAST_MODEL, turns } satisfies AudioTrack
+    return await record(db, `${notebookId}/${noteId}.mp3`, script.turns, language)
   } catch (e) {
     console.error(e)
     return null
@@ -348,6 +370,21 @@ export const retryNote = action([id, id], async (notebookId, noteId) => {
   refresh(notebookId)
 })
 
+export const voiceEpisode = action([id, id, z.number().int().min(0).max(STORY.episodes - 1)], async (notebookId, noteId, episode) => {
+  const db = await editor(notebookId)
+  const select = () => db.from("notes").select("data").eq("id", noteId).eq("notebook_id", notebookId).single()
+  const note = must(await select())
+  const turns = parseStudioData("story", note.data)?.episodes[episode]?.turns
+  if (!turns) throw new UserError("Diese Folge gibt es nicht")
+  if (episodeTracks(note.data)[episode]) return
+  if (!(await claimTts(db, notebookId, turns, PODCAST_MODEL)))
+    throw new UserError("Die KI-Stimmen sind gerade aufgebraucht. Dein Browser kann die Folge trotzdem vorlesen.")
+  const track = await record(db, `${notebookId}/${noteId}-${episode}.mp3`, turns, storedLanguage(note.data))
+  const latest = must(await select()).data
+  must(await db.from("notes").update({ data: { ...(latest as object), tracks: { ...episodeTracks(latest), [episode]: track } } }).eq("id", noteId))
+  refresh(notebookId)
+})
+
 export const clearChat = action([id], async (notebookId) => {
   const db = await createClient()
   const { data } = await db.auth.getClaims()
@@ -383,8 +420,7 @@ export const askHosts = action(
     const note = must(await db.from("notes").select("data").eq("id", noteId).eq("notebook_id", notebookId).single())
     const script = parseStudioData("audio", note.data)
     if (!script) throw new UserError("Diese Ausgabe ist keine Audio-Zusammenfassung")
-    const stored = (note.data as { language?: string }).language
-    const language = stored && stored in LANGUAGES ? (stored as Language) : "Deutsch"
+    const language = storedLanguage(note.data)
     const all = must(await db.from("sources").select("*").eq("notebook_id", notebookId).order("created_at"))
     const sources = all.some((s) => s.selected) ? all.filter((s) => s.selected) : all
     if (!sources.length) throw new UserError("Dieses Notebook hat keine Quellen")

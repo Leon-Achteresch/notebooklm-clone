@@ -44,6 +44,8 @@ export const AUDIO_FORMATS = {
   },
 } as const
 
+export const STORY = { episodes: 3, turns: [7, 8], chars: [2200, 2900], narrator: "A" } as const
+
 export const LANGUAGES = { Deutsch: "de", Englisch: "en", Französisch: "fr", Spanisch: "es", Italienisch: "it" } as const
 
 export const HOSTS = { A: "Mara", B: "Jonas" } as const
@@ -60,6 +62,7 @@ export const studioRequestSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("report"), type: z.enum(keys(REPORTS)), language, focus }),
   z.object({ kind: z.enum(["flashcards", "quiz", "mindmap", "slides", "table"]), language, focus }),
   z.object({ kind: z.literal("audio"), format: z.enum(keys(AUDIO_FORMATS)), language, focus }),
+  z.object({ kind: z.literal("story"), language, focus }),
 ])
 
 export type StudioRequest = z.infer<typeof studioRequestSchema>
@@ -95,6 +98,16 @@ export const studioSchemas = {
     title: z.string(),
     turns: z.array(z.object({ speaker: z.enum(["A", "B"]), text: z.string() })),
   }),
+  story: z.object({
+    title: z.string(),
+    synopsis: z.string(),
+    episodes: z.array(
+      z.object({
+        title: z.string(),
+        turns: z.array(z.object({ speaker: z.literal(STORY.narrator), text: z.string() })),
+      })
+    ),
+  }),
   slides: z.object({
     title: z.string(),
     subtitle: z.string(),
@@ -122,6 +135,7 @@ export type Flashcards = z.infer<typeof studioSchemas.flashcards>
 export type Quiz = z.infer<typeof studioSchemas.quiz>
 export type MindMap = z.infer<typeof studioSchemas.mindmap>
 export type AudioScript = z.infer<typeof studioSchemas.audio>
+export type Story = z.infer<typeof studioSchemas.story>
 export type Slides = z.infer<typeof studioSchemas.slides>
 export type Slide = Slides["slides"][number]
 export type DataTable = z.infer<typeof studioSchemas.table>
@@ -135,6 +149,7 @@ export const KIND_LABELS = {
   audio: "Audio-Zusammenfassung",
   slides: "Präsentation",
   table: "Datentabelle",
+  story: "Hörbuch",
 } as const
 
 export function studioLabel(req: StudioRequest) {

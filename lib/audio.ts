@@ -18,6 +18,10 @@ export const audioTrackSchema = z.object({
 })
 
 export type AudioTrack = z.infer<typeof audioTrackSchema>
+
+const episodeTracksSchema = z.record(z.string(), audioTrackSchema).catch({})
+
+export const episodeTracks = (data: unknown) => episodeTracksSchema.parse((data as { tracks?: unknown } | null)?.tracks)
 export type TimedTurn = AudioTrack["turns"][number]
 
 export type Alignment = {

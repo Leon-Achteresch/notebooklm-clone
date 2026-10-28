@@ -6,7 +6,7 @@ import { throttle } from "@/lib/rate-limit"
 import { clientIp, must, UserError } from "@/lib/server/action"
 import type { Json } from "@/lib/database.types"
 import type { Db } from "@/lib/supabase/server"
-import { AUDIO_FORMATS, HOSTS, REPORTS, studioSchemas, type AudioScript, type Language, type StudioRequest } from "@/lib/studio"
+import { AUDIO_FORMATS, HOSTS, REPORTS, STORY, studioSchemas, type AudioScript, type Language, type StudioRequest } from "@/lib/studio"
 import type { Guide, Source } from "@/lib/types"
 
 export const anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY })
@@ -128,6 +128,16 @@ function studioTask(req: StudioRequest) {
       const format = AUDIO_FORMATS[req.format]
       return `Schreibe das Skript für eine Audio-Zusammenfassung im Stil eines Podcasts über die Quellen: ${format.prompt}. Insgesamt ${format.chars[0]} bis ${format.chars[1]} Zeichen gesprochener Text. ${PODCAST_RULES} ${lang}`
     }
+    case "story":
+      return [
+        `Verwandle die Quellen in ein Hörbuch zum Einschlafen: eine ruhige, warme Geschichte in genau ${STORY.episodes} Folgen, die man abends im Bett hört.`,
+        "Figuren, Orte und Handlung darfst du erfinden; das Wissen, die Fakten und Zusammenhänge, die die Geschichte nebenbei vermittelt, stammen ausschließlich aus den Quellen.",
+        "title ist der Titel der Reihe, synopsis ein Satz, der neugierig macht. Jede Folge hat einen eigenen title, greift am Anfang kurz auf, was zuletzt geschah, und endet sanft; nur die letzte Folge schließt die Geschichte ab und lässt sie friedlich ausklingen.",
+        `Jede Folge ist ausführlich: ${STORY.turns[0]} bis ${STORY.turns[1]} turns mit je 280 bis 400 Zeichen, zusammen ${STORY.chars[0]} bis ${STORY.chars[1]} Zeichen, alle mit speaker A, gelesen von einer einzigen Erzählstimme.`,
+        "Ruhiges Tempo, lange weiche Sätze, bildhafte Beschreibungen, keine Spannungsspitzen, keine Gewalt, kein Cliffhanger, der wach hält.",
+        "Kein Markdown, keine Audio-Tags, keine Regieanweisungen. Schreibe Zahlen und Abkürzungen so, wie man sie ausspricht.",
+        lang,
+      ].join(" ")
   }
 }
 

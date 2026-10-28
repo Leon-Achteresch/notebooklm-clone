@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { chunkTurns, id3Size, locate, mp3Duration, peaks, speakable, stripId3, timedTurns, type Alignment } from "./audio.ts"
+import { chunkTurns, episodeTracks, id3Size, locate, mp3Duration, peaks, speakable, stripId3, timedTurns, type Alignment } from "./audio.ts"
 
 test("speakable removes audio tags and extra whitespace", () => {
   assert.equal(speakable("[curious] Wusstest du  das? [laughs]Ja."), "Wusstest du das? Ja.")
@@ -78,4 +78,11 @@ test("locate finds the active turn and the last started word", () => {
   assert.deepEqual(locate(turns, 2.5), { turn: 1, word: -1 })
   assert.deepEqual(locate(turns, 9), { turn: 1, word: 0 })
   assert.deepEqual(locate([], 1), { turn: -1, word: -1 })
+})
+
+test("episodeTracks keeps voiced episodes and ignores broken data", () => {
+  const track = { path: "n/x-1.mp3", duration: 3, model: "eleven_v4_turbo", turns: [] }
+  assert.deepEqual(episodeTracks({ tracks: { 1: track } }), { 1: track })
+  assert.deepEqual(episodeTracks({ tracks: { 0: { path: 1 } } }), {})
+  assert.deepEqual(episodeTracks(null), {})
 })

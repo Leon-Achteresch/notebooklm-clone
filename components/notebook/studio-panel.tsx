@@ -8,6 +8,7 @@ import {
   FileTextIcon,
   LayersIcon,
   ListChecksIcon,
+  MoonStarIcon,
   NetworkIcon,
   NotebookPenIcon,
   PanelRightCloseIcon,
@@ -23,6 +24,7 @@ import { Cover } from "@/components/notebook/brand"
 import { AudioPlayer } from "@/components/notebook/audio-player"
 import { MindMapCanvas } from "@/components/notebook/mindmap-canvas"
 import { SlidesView } from "@/components/notebook/slides-view"
+import { StoryView } from "@/components/notebook/story-view"
 import { AudioView, FlashcardsView, QuizView, ReportView } from "@/components/notebook/studio-viewers"
 import { TableView } from "@/components/notebook/table-view"
 import { useRun } from "@/components/notebook/use-run"
@@ -40,6 +42,7 @@ import {
   LANGUAGES,
   parseStudioData,
   REPORTS,
+  STORY,
   type Language,
   type StudioRequest,
 } from "@/lib/studio"
@@ -88,6 +91,12 @@ export const KINDS: Record<NoteKind, { label: string; hint: string; icon: typeof
     hint: "Fakten vergleichen",
     icon: Table2Icon,
     tint: "bg-[oklch(0.94_0.03_200)] text-[oklch(0.5_0.09_210)] dark:bg-[oklch(0.3_0.04_210)] dark:text-[oklch(0.82_0.07_200)]",
+  },
+  story: {
+    label: KIND_LABELS.story,
+    hint: "Eine Geschichte zum Einschlafen",
+    icon: MoonStarIcon,
+    tint: "bg-[oklch(0.93_0.04_275)] text-[oklch(0.45_0.14_280)] dark:bg-[oklch(0.3_0.06_280)] dark:text-[oklch(0.82_0.09_280)]",
   },
   note: {
     label: KIND_LABELS.note,
@@ -224,6 +233,15 @@ export function StudioPanel({
           : (Object.keys(REPORTS) as (keyof typeof REPORTS)[]).map((type) => (
               <Option key={type} label={REPORTS[type].label} onPick={() => start({ kind, type, ...extra })} />
             ))}
+        {kind === "audio" && (
+          <div className="mt-1.5 border-t pt-1.5">
+            <Option
+              label={KIND_LABELS.story}
+              hint={`${STORY.episodes} Folgen · Geschichte zum Einschlafen`}
+              onPick={() => start({ kind: "story", ...extra })}
+            />
+          </div>
+        )}
         <div className="mt-1.5 border-t px-1 pt-2.5 pb-1">
           <label htmlFor={`focus-${kind}`} className="label px-1">
             Schwerpunkt <span className="normal-case tracking-normal">(optional)</span>
@@ -400,6 +418,7 @@ function Option({ label, hint, onPick }: { label: string; hint?: string; onPick:
 function stageLabel(note: Note) {
   const stage = (note.data as { stage?: string } | null)?.stage
   if (stage === "voices") return "Stimmen werden aufgenommen"
+  if (note.kind === "story") return "Geschichte wird geschrieben"
   return note.kind === "audio" ? "Skript wird geschrieben" : "Wird erstellt"
 }
 
@@ -453,7 +472,7 @@ function NoteRow({ note, canEdit, onOpen, onRetry }: { note: Note; canEdit: bool
   )
 }
 
-function NoteBody({ note, onAsk }: { note: Note; onAsk: (question: string) => void }) {
+function NoteBody({ note, canEdit, onAsk }: { note: Note; canEdit: boolean; onAsk: (question: string) => void }) {
   const unreadable = <p className="text-sm text-muted-foreground">Dieser Inhalt hat ein unbekanntes Format.</p>
   switch (note.kind) {
     case "note":
@@ -495,6 +514,20 @@ function NoteBody({ note, onAsk }: { note: Note; onAsk: (question: string) => vo
         />
       ) : (
         <AudioView data={data} language={extra.language} />
+      )
+    }
+    case "story": {
+      const story = parseStudioData("story", note.data)
+      if (!story) return unreadable
+      return (
+        <StoryView
+          notebookId={note.notebook_id}
+          noteId={note.id}
+          story={story}
+          data={note.data}
+          language={(note.data as { language?: Language }).language ?? "Deutsch"}
+          canEdit={canEdit}
+        />
       )
     }
   }
@@ -562,7 +595,7 @@ function NoteDialog({
               className="h-full min-h-64 resize-none border-0 p-0 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
           ) : (
-            note && <NoteBody note={note} onAsk={onAsk} />
+            note && <NoteBody note={note} canEdit={canEdit} onAsk={onAsk} />
           )}
         </motion.div>
         {canEdit && (
